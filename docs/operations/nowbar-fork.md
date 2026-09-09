@@ -8,7 +8,11 @@ The `nowbar` default branch contains the Android feature. The **Now Bar sync and
 
 Enable GitHub Actions and provide `NOWBAR_KEYSTORE_BASE64` (a PKCS12 keystore with alias `nowbar`) and `NOWBAR_KEYSTORE_PASSWORD`. Keep an offline backup of both: future Android updates must use the same signing identity. Never commit signing material. The workflow run number is the Android version code; preserve the workflow identity and keep version codes increasing if migrating it. GitHub may disable scheduled workflows after prolonged repository inactivity; check Actions if releases stop.
 
-Run the workflow manually with `sync_upstream` to test an upstream merge immediately. To build locally, install the mobile workspace dependencies, set `NOWBAR_VERSION_CODE` and `NOWBAR_VERSION`, prebuild Android, and run `:t3-nowbar:testReleaseUnitTest :app:assembleRelease`. Local debug signing cannot update a published build.
+Run the workflow manually with `sync_upstream` to test an upstream merge immediately. To build locally, install the mobile workspace dependencies, copy the upstream `.env.example` to `.env` for public T3 Connect configuration, set `NOWBAR_VERSION_CODE`, prebuild Android, and run `:t3-nowbar:testReleaseUnitTest :app:assembleRelease`. The display version derives from upstream's mobile version plus `-nowbar.<build number>`. Local debug signing cannot update a published build.
+
+Release builds require the public Clerk publishable key, JWT template, and relay URL from upstream `.env.example`. Without these settings upstream intentionally hides account and Connect screens. The release checks validate the generated Expo config as well as the config plugin.
+
+Public client settings do not register a new native application with T3's identity providers. Native Google sign-in requires registration of this fork's package and certificate in the provider configuration; hosted browser sign-in requires an allowed callback in T3's Clerk instance. The fork cannot change those upstream settings. Do not claim Google login is verified until a complete sign-in succeeds on the signed APK. Android remote push also needs Firebase configuration for this package and compatible relay credentials; its switches stay disabled without configuration. Samsung Now Bar monitoring uses existing app connections independently of Firebase.
 
 ## Device validation
 
