@@ -7,9 +7,12 @@ export interface NowBarPreferences {
   readonly private: boolean;
   readonly results: boolean;
   readonly updates: boolean;
+  readonly push: boolean;
+  readonly pushLive: boolean;
 }
 
 interface NowBarNativeModule {
+  clearRemotePush(): void;
   readState(): { since: number; readTurns: string };
   markRead(identity: string, turn: string): void;
   addListener(event: "heartbeat", listener: () => void): { remove(): void };
@@ -39,6 +42,8 @@ let preferences = nowBarNative?.preferences() ?? {
   private: false,
   results: true,
   updates: true,
+  push: false,
+  pushLive: true,
 };
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => {

@@ -748,7 +748,11 @@ function registerDevice(
       input.preferencesOverride,
     );
     if (expectedGeneration !== deviceRegistrationGeneration) return;
-    if (relayTokenProvider && relayTokenProviderIdentity) {
+    if (
+      relayTokenProvider &&
+      relayTokenProviderIdentity &&
+      Constants.expoConfig?.extra?.nowbar?.pushTransport !== "host"
+    ) {
       configureAndroidAgentNotifications(
         deviceId,
         relayTokenProviderIdentity,

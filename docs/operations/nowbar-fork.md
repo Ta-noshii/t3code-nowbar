@@ -12,7 +12,15 @@ Run the workflow manually with `sync_upstream` to test an upstream merge immedia
 
 Release builds require the public Clerk publishable key, JWT template, and relay URL from upstream `.env.example`. Without these settings upstream intentionally hides account and Connect screens. The release checks validate the generated Expo config as well as the config plugin.
 
-Public client settings do not register a new native application with T3's identity providers. Native Google sign-in requires registration of this fork's package and certificate in the provider configuration; hosted browser sign-in requires an allowed callback in T3's Clerk instance. The fork cannot change those upstream settings. Do not claim Google login is verified until a complete sign-in succeeds on the signed APK. Android remote push also needs Firebase configuration for this package and compatible relay credentials; its switches stay disabled without configuration. Samsung Now Bar monitoring uses existing app connections independently of Firebase.
+Google/T3 Connect sign-in has been verified by the user in this signed fork. Keep the public upstream cloud settings intact across merges.
+
+## Private Android push
+
+The release requires `NOWBAR_GOOGLE_SERVICES_JSON` for `com.tanoshii.t3code.nowbar`. `NOWBAR_PUSH_TRANSPORT=host` enables private sender enrollment and prevents registering this Firebase token against the official relay's different Firebase project. Keep the service-account key only on the sender, with FCM sender permissions.
+
+Enable **Settings ? Device Notifications**, then share the setup JSON to the sender administrator. Install it as `~/.config/t3-nowbar-push/device.json` with mode 600 alongside the service-account and paired read-only connection JSON. Run `infra/relay/scripts/android-push-watch.ts` with those three paths using Node 24 and the relay workspace dependencies. The misc systemd user service restarts failures; the live T3 service does not need restarting. Re-export enrollment after a device-token change. This setup watches one paired environment; additional environments need their own sender connection.
+
+Validate delivery after backgrounding the signed app: working, approval, input, plan, unread result, read, dismiss, notification permission, and sign-out. Native receipt validates device/account identity and freshness before rendering. Active cards have a renewed five-minute lease; unread results remain until read/dismissed. Android force-stop prevents FCM receipt until the user opens the app. A successful FCM API response proves acceptance, not device display.
 
 ## Device validation
 

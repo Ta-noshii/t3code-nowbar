@@ -269,6 +269,86 @@ class NowBarService : Service() {
 
     fun prefs(context: Context) = context.getSharedPreferences("t3-nowbar", Context.MODE_PRIVATE)
 
+    /** FCM can post a native card without starting a foreground service or JS. */
+    fun receiveRemoteRows(context: Context, json: String, updatedAt: Long) {
+      val prefs = prefs(context)
+      if (!prefs.getBoolean("push", false) || instance != null || updatedAt < prefs.getLong("lastPushAt", 0)) return
+      val manager = context.getSystemService(NotificationManager::class.java)
+      manager.createNotificationChannel(NotificationChannel(CHANNEL, "Live agent work", NotificationManager.IMPORTANCE_DEFAULT).apply { setSound(null, null); enableVibration(false) })
+      manager.createNotificationChannel(NotificationChannel(RESULTS, "Agent results", NotificationManager.IMPORTANCE_DEFAULT))
+      val incoming = runCatching { JSONArray(json) }.getOrNull() ?: return
+      val reads = JSONObject(prefs.getString("readTurns", "{}") ?: "{}")
+      val suppressed = prefs.getStringSet("suppressed", emptySet()).orEmpty()
+      val rows = (0 until incoming.length()).map { incoming.getJSONObject(it) }.filter { row ->
+        val key = row.optString("key")
+        val identity = runCatching { JSONArray(key) }.getOrNull()
+        val alreadyRead = isReady(row) && identity != null && identity.length() == 3 &&
+          reads.optString(JSONArray().put(identity.getString(0)).put(identity.getString(1)).toString()) == identity.getString(2)
+        key !in suppressed && !alreadyRead
+      }
+      prefs.edit().putLong("lastPushAt", updatedAt).apply()
+      if (rows.isEmpty()) { manager.cancel(LIVE_ID); return }
+      val row = rows.first()
+      val key = row.getString("key")
+      val phase = row.getString("phase")
+      val ready = isReady(row)
+      val previousKey = prefs.getString("remoteRowKey", null)
+      val previousPhase = prefs.getString("remoteRowPhase", null)
+      val needsAlert = (ready && prefs.getBoolean("results", true)) || phase == "attention"
+      if (needsAlert && (previousKey != key || previousPhase != phase || prefs.getString("remoteRowKind", null) != row.optString("kind"))) {
+        // result() normally requires local monitoring; remote delivery is its own opt-in.
+        val privateMode = prefs.getBoolean("private", false)
+        manager.notify(key.hashCode(), NotificationCompat.Builder(context, RESULTS)
+          .setSmallIcon(R.drawable.nowbar_pulse)
+          .setContentTitle(if (privateMode) "T3 Code" else row.getString("title"))
+          .setContentText(if (phase == "attention") "Your agent needs you" else if (phase == "error") "Agent needs a look" else "Result ready to review")
+          .setContentIntent(openIntent(context, row.getString("url")))
+          .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setAutoCancel(true).build())
+      }
+      prefs.edit().putString("remoteRowKey", key).putString("remoteRowPhase", phase).putString("remoteRowKind", row.optString("kind")).apply()
+      if (!prefs.getBoolean("pushLive", true)) { manager.cancel(LIVE_ID); return }
+      val display = if (phase == "attention" || phase == "working") row.optString("kind").ifEmpty { phase } else phase
+      val color = Color.parseColor(when (display) {
+        "approval", "input", "attention" -> "#F4B860"
+        "plan" -> "#67D9F5"
+        "completed", "monitoring" -> "#40DDB5"
+        "error" -> "#FB7185"
+        "offline", "stopped" -> "#94A3B8"
+        else -> "#A78BFA"
+      })
+      val privateMode = prefs.getBoolean("private", false)
+      val total = if (privateMode || ready) 0 else row.optInt("total").coerceAtLeast(0)
+      val completed = row.optInt("completed").coerceIn(0, total)
+      val title = if (privateMode) "T3 Code · Agent work" else row.getString("title")
+      val summary = NowBarPolicy.summary(display, row.optLong("startedAt"), System.currentTimeMillis(), completed, total, rows.size)
+      val artwork = NowBarArtwork.emblem(display, color, if (phase == "completed") 100 else NowBarPolicy.progress(completed, total))
+      val open = openIntent(context, row.getString("url"))
+      val dismiss = PendingIntent.getBroadcast(context, key.hashCode(), Intent(context, NowBarActionReceiver::class.java).setAction("remote-dismiss").putExtra("key", key), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+      val builder = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.nowbar_pulse)
+        .setLargeIcon(artwork).setContentTitle(title).setContentText(summary)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(if (privateMode) summary else "$summary\n${row.getString("status")}"))
+        .setColor(color).setOngoing(true).setOnlyAlertOnce(true).setSilent(true)
+        .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setRequestPromotedOngoing(true)
+        .setShortCriticalText(NowBarPolicy.chip(display, rows.size, completed, total))
+        .setContentIntent(open).setDeleteIntent(dismiss)
+        .addAction(0, if (ready || phase == "attention") "Review" else "Open thread", open)
+        .addAction(0, "Dismiss", dismiss)
+      if (!ready) builder.setTimeoutAfter(NowBarPolicy.STOP_AFTER_MS)
+      if (!ready && phase != "attention" && row.optLong("startedAt") > 0)
+        builder.setWhen(row.optLong("startedAt")).setUsesChronometer(true)
+      if (Build.MANUFACTURER.equals("samsung", true)) builder.addExtras(Bundle().apply {
+        val prefix = "android.ongoingActivityNoti."
+        putInt(prefix + "style", 1)
+        putString(prefix + "nowbarPrimaryInfo", title)
+        putString(prefix + "nowbarSecondaryInfo", summary)
+        putParcelable(prefix + "nowbarIcon", Icon.createWithBitmap(artwork))
+        putInt(prefix + "chipBgColor", color)
+        putString(prefix + "chipExpandedText", NowBarPolicy.chip(display, rows.size, completed, total))
+        putParcelable(prefix + "nowbarPendingIntentOnSubScreen", open)
+      })
+      manager.notify(LIVE_ID, builder.build())
+    }
+
     fun openIntent(context: Context, url: String): PendingIntent {
       require(url.startsWith("t3code-nowbar://threads/"))
       val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)!!
@@ -298,6 +378,13 @@ class NowBarService : Service() {
 
 class NowBarActionReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
+    if (intent.action == "remote-dismiss") {
+      val key = intent.getStringExtra("key") ?: return
+      val prefs = NowBarService.prefs(context)
+      prefs.edit().putStringSet("suppressed", prefs.getStringSet("suppressed", emptySet()).orEmpty() + key).apply()
+      if (prefs.getString("remoteRowKey", null) == key) context.getSystemService(NotificationManager::class.java).cancel(NowBarService.LIVE_ID)
+      return
+    }
     NowBarService.instance?.action(intent.action ?: return)
   }
 }

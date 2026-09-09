@@ -33,3 +33,18 @@ test("release cannot silently lose any setting required to show T3 Connect", () 
     }
   }
 });
+
+test("host Firebase tokens stay separate from official relay registration", () => {
+  process.env.NOWBAR_REQUIRE_CLOUD_CONFIG = "0";
+  for (const transport of ["host", "relay"]) {
+    process.env.NOWBAR_PUSH_TRANSPORT = transport;
+    const result = plugin({
+      version: "1.1.1",
+      android: { googleServicesFile: "/private/client.json" },
+    });
+    assert.equal(result.extra.nowbar.firebaseConfigured, true);
+    assert.equal(result.extra.nowbar.remotePushConfigured, transport === "relay");
+    assert.equal(result.extra.nowbar.pushTransport, transport);
+  }
+  delete process.env.NOWBAR_PUSH_TRANSPORT;
+});

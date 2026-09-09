@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./nowbar": {
+      "types": "./src/nowbar.ts",
+      "default": "./src/nowbar.ts"
+    },
     "./load-balancing": {
       "types": "./src/load-balancing.ts",
       "default": "./src/load-balancing.ts"

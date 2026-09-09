@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - Local developer verification reads private credential files.
 import * as NodeFSP from "node:fs/promises";
+import { projectNowBarRows } from "@t3tools/client-runtime/nowbar";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import {
@@ -37,6 +38,7 @@ const Device = Schema.Struct({
   deviceId: Schema.NonEmptyString,
   userId: Schema.NonEmptyString,
   packageName: Schema.NonEmptyString,
+  unreadSince: Schema.optional(Schema.Finite),
 });
 const Connection = Schema.Struct({
   wsUrl: Schema.NonEmptyString,
@@ -129,14 +131,21 @@ const main = Effect.gen(function* () {
     const projects = new Map<string, OrchestrationProjectShell>();
     const threads = new Map<string, OrchestrationThreadShell>();
     let states = new Map<string, RelayAgentActivityState>();
-    let previouslyActive = false;
+    let lastSentAt = 0;
+    let previousRows = "[]";
+    const unreadSince = device.unreadSince ?? (yield* Clock.currentTimeMillis);
     yield* Effect.logInfo("Watching this paired environment for Android push verification.");
     yield* rpc[ORCHESTRATION_WS_METHODS.subscribeShell]({}).pipe(
+      Stream.merge(
+        Stream.tick("60 seconds").pipe(Stream.map(() => ({ kind: "heartbeat" as const }))),
+      ),
       Stream.runForEach(
         Effect.fnUntraced(function* (item) {
           switch (item.kind) {
             case "synchronized":
               return;
+            case "heartbeat":
+              break;
             case "snapshot":
               projects.clear();
               threads.clear();
@@ -181,9 +190,41 @@ const main = Effect.gen(function* () {
             nowMs: now,
           });
           const active = (aggregate?.activeCount ?? 0) > 0;
+          const remoteRows = projectNowBarRows(
+            [...threads.values()].map((thread) => ({
+              ...thread,
+              environmentId: config.environment.environmentId,
+            })),
+            [...projects.values()].map((project) => ({
+              ...project,
+              environmentId: config.environment.environmentId,
+            })),
+            new Set([config.environment.environmentId]),
+            { since: unreadSince, readTurns: {} },
+          )
+            .slice(0, 3)
+            .map((row) => ({
+              ...row,
+              title: row.title.slice(0, 80),
+              status: row.status.slice(0, 100),
+            }));
+          while (new TextEncoder().encode(encodeJson(remoteRows)).length > 2400) remoteRows.pop();
+          const rowPayload = encodeJson(remoteRows);
+          const sameRows = rowPayload === previousRows;
           const same = encodeJson([...next.values()]) === encodeJson([...states.values()]);
           states = next;
-          if ((!active && !previouslyActive && !alert) || (same && !alert)) return;
+          const needsLease = remoteRows.some(
+            (row) => !["completed", "error", "stopped"].includes(row.phase),
+          );
+          if (
+            item.kind !== "snapshot" &&
+            same &&
+            sameRows &&
+            !alert &&
+            (!needsLease || now - lastSentAt < 60_000)
+          )
+            return;
+          previousRows = rowPayload;
           const result = yield* sender.send({
             token: device.token,
             packageName: device.packageName,
@@ -193,12 +234,13 @@ const main = Effect.gen(function* () {
               device_id: device.deviceId,
               user_id: device.userId,
               updated_at: String(now),
+              nowbar_rows: rowPayload,
               ...androidActivityData(aggregate),
               ...alert,
             }),
           });
           if (result.unregistered) return yield* new WatchUnregisteredDeviceError({});
-          previouslyActive = active;
+          lastSentAt = now;
           yield* Effect.logInfo(
             `Android push accepted: ${state?.phase ?? (active ? "active" : "ended")}`,
           );

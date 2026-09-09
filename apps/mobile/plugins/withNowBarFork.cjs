@@ -32,7 +32,10 @@ module.exports = function withNowBarFork(config) {
     nowbar: {
       upstreamVersion,
       buildNumber,
-      remotePushConfigured: Boolean(config.android.googleServicesFile),
+      firebaseConfigured: Boolean(config.android.googleServicesFile),
+      pushTransport: process.env.NOWBAR_PUSH_TRANSPORT || "relay",
+      remotePushConfigured:
+        Boolean(config.android.googleServicesFile) && process.env.NOWBAR_PUSH_TRANSPORT !== "host",
     },
   };
   // An upstream OTA would replace this fork's JS with code unaware of our

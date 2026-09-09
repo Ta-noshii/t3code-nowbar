@@ -33,6 +33,10 @@ class T3NowBarModule : Module() {
     Events("heartbeat")
     OnCreate { heartbeat = { sendEvent("heartbeat", emptyMap<String, Any>()) } }
     OnDestroy { heartbeat = null }
+    Function("clearRemotePush") {
+      if (NowBarService.instance == null) context.getSystemService(NotificationManager::class.java).cancel(NowBarService.LIVE_ID)
+      NowBarService.prefs(context).edit().remove("remoteRowKey").remove("remoteRowPhase").remove("remoteRowKind").remove("lastPushAt").apply()
+    }
     Function("readState") {
       val prefs = NowBarService.prefs(context)
       if (!prefs.contains("unreadSince")) prefs.edit().putLong("unreadSince", System.currentTimeMillis()).apply()
@@ -43,20 +47,32 @@ class T3NowBarModule : Module() {
       val reads = JSONObject(prefs.getString("readTurns", "{}") ?: "{}")
       reads.put(identity, turn)
       prefs.edit().putString("readTurns", reads.toString()).apply()
+      val remoteKey = runCatching { JSONArray(prefs.getString("remoteRowKey", "[]")) }.getOrNull()
+      if (remoteKey != null && remoteKey.length() == 3 &&
+        JSONArray().put(remoteKey.getString(0)).put(remoteKey.getString(1)).toString() == identity && remoteKey.getString(2) == turn) {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        if (NowBarService.instance == null) manager.cancel(NowBarService.LIVE_ID)
+        manager.cancel(remoteKey.toString().hashCode())
+      }
     }
     Function("preferences") {
       val prefs = NowBarService.prefs(context)
       mapOf("enabled" to prefs.getBoolean("enabled", false), "private" to prefs.getBoolean("private", false),
-        "results" to prefs.getBoolean("results", true), "updates" to prefs.getBoolean("updates", true))
+        "results" to prefs.getBoolean("results", true), "updates" to prefs.getBoolean("updates", true),
+        "push" to prefs.getBoolean("push", false), "pushLive" to prefs.getBoolean("pushLive", true))
     }
     Function("setPreferences") { json: String ->
       val values = JSONObject(json)
       val edit = NowBarService.prefs(context).edit()
-      listOf("enabled", "private", "results", "updates").forEach { key ->
+      listOf("enabled", "private", "results", "updates", "push", "pushLive").forEach { key ->
         if (values.has(key)) edit.putBoolean(key, values.getBoolean(key))
       }
       if (values.optBoolean("enabled", false)) edit.remove("suppressed")
       edit.apply()
+      if (((values.has("push") && !values.getBoolean("push")) ||
+          (values.has("pushLive") && !values.getBoolean("pushLive"))) && NowBarService.instance == null) {
+        context.getSystemService(NotificationManager::class.java).cancel(NowBarService.LIVE_ID)
+      }
       if (values.has("enabled") && !values.getBoolean("enabled")) {
         context.stopService(Intent(context, NowBarService::class.java))
       } else {

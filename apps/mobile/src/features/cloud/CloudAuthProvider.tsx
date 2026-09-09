@@ -1,4 +1,5 @@
 import { ClerkProvider, useAuth } from "@clerk/expo";
+import { HostPushCoordinator } from "../nowbar/hostPush";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { ManagedRelay, setManagedRelaySession } from "@t3tools/client-runtime/relay";
 import {
@@ -212,6 +213,7 @@ export function CloudAuthProvider(props: { readonly children: ReactNode }) {
 
   return (
     <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
+      <HostPushCoordinator />
       <CloudAuthBridge>{props.children}</CloudAuthBridge>
     </ClerkProvider>
   );

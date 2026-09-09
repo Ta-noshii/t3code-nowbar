@@ -34,6 +34,7 @@ jobs:
       T3CODE_CLERK_JWT_TEMPLATE: t3-relay
       T3CODE_RELAY_URL: https://relay.t3.codes
       NOWBAR_REQUIRE_CLOUD_CONFIG: "1"
+      NOWBAR_PUSH_TRANSPORT: host
     steps:
       - uses: actions/checkout@v6
         with:
@@ -74,7 +75,9 @@ jobs:
         if: steps.source.outputs.build == 'true'
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: |
+            21
+            17
 
       - uses: voidzero-dev/setup-vp@v1
         if: steps.source.outputs.build == 'true'
@@ -95,6 +98,21 @@ jobs:
           node --test apps/mobile/plugins/withNowBarFork.test.cjs
           vp test run apps/mobile/src/features/nowbar/model.test.ts apps/mobile/src/features/nowbar/update-manifest.test.ts
           vp run --filter @t3tools/mobile typecheck
+
+      - name: Configure Firebase for this fork
+        if: steps.source.outputs.build == 'true'
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.NOWBAR_GOOGLE_SERVICES_JSON }}
+        run: |
+          node --input-type=module <<'NODE'
+          import * as fs from 'node:fs';
+          if (!process.env.GOOGLE_SERVICES_JSON) throw new Error('Firebase client configuration is required');
+          const config = JSON.parse(process.env.GOOGLE_SERVICES_JSON);
+          if (!config.client?.some(c => c.client_info?.android_client_info?.package_name === 'com.tanoshii.t3code.nowbar')) throw new Error('Firebase package mismatch');
+          const path = `${process.env.RUNNER_TEMP}/nowbar-google-services.json`;
+          fs.writeFileSync(path, JSON.stringify(config));
+          fs.appendFileSync(process.env.GITHUB_ENV, `T3CODE_ANDROID_GOOGLE_SERVICES_FILE=${path}\n`);
+          NODE
 
       - name: Prebuild Android
         if: steps.source.outputs.build == 'true'
@@ -121,7 +139,7 @@ jobs:
         working-directory: apps/mobile/android
         run: |
           chmod +x gradlew
-          ./gradlew :t3-nowbar:testReleaseUnitTest :app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon --max-workers=2
+          ./gradlew :t3-nowbar:testReleaseUnitTest :t3-agent-notifications:testReleaseUnitTest :app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon --max-workers=2
 
       - name: Sign and verify the APK
         if: steps.source.outputs.build == 'true'

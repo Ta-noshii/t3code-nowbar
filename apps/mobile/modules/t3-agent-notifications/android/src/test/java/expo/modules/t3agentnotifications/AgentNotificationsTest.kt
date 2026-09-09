@@ -23,10 +23,55 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import expo.modules.t3nowbar.NowBarService
+import expo.modules.t3nowbar.NowBarActionReceiver
+import org.json.JSONArray
+import org.json.JSONObject
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [24, 26, 33, 36], manifest = Config.NONE)
 class AgentNotificationsTest {
+  @Test
+  @Config(sdk = [33])
+  fun customPushRetainsUnreadResultsAndHonorsDismissalAndReadReceipts() {
+    val prefs = NowBarService.prefs(context)
+    prefs.edit().clear().putBoolean("push", true).putBoolean("pushLive", true).putBoolean("results", false).apply()
+    val key = JSONArray().put("environment").put("thread").put("turn").toString()
+    val row = JSONObject().put("key", key).put("phase", "completed").put("title", "Private task")
+      .put("status", "Ready to review").put("url", "t3code-nowbar://threads/environment/thread")
+    val payload = update("unused", false) + ("nowbar_rows" to JSONArray().put(row).toString())
+    AgentNotifications.receive(context, payload)
+    val card = manager.activeNotifications.single { it.id == NowBarService.LIVE_ID }.notification
+    assertTrue(card.flags and Notification.FLAG_ONGOING_EVENT != 0)
+    assertTrue(NotificationCompat.isRequestPromotedOngoing(card))
+    assertEquals(0L, card.timeoutAfter)
+    NowBarActionReceiver().onReceive(context, Intent().setAction("remote-dismiss").putExtra("key", key))
+    AgentNotifications.receive(context, payload)
+    assertTrue(manager.activeNotifications.isEmpty())
+    prefs.edit().remove("suppressed").putString("readTurns", JSONObject().put(JSONArray().put("environment").put("thread").toString(), "turn").toString()).apply()
+    AgentNotifications.receive(context, payload)
+    assertTrue(manager.activeNotifications.isEmpty())
+  }
+
+  @Test
+  @Config(sdk = [33])
+  fun customPushRespectsReceiverIdentityPrivacyAndDisabledState() {
+    val prefs = NowBarService.prefs(context)
+    prefs.edit().clear().putBoolean("push", true).putBoolean("private", true).apply()
+    val row = JSONObject().put("key", "[\"environment\",\"thread\",\"turn\"]").put("phase", "attention").put("kind", "input")
+      .put("title", "Secret task name").put("status", "Secret question").put("url", "t3code-nowbar://threads/environment/thread")
+    val payload = update("unused", true) + ("nowbar_rows" to JSONArray().put(row).toString())
+    AgentNotifications.receive(context, payload + ("user_id" to "other-user"))
+    assertTrue(manager.activeNotifications.isEmpty())
+    AgentNotifications.receive(context, payload)
+    val card = manager.activeNotifications.single { it.id == NowBarService.LIVE_ID }.notification
+    assertEquals("T3 Code · Agent work", card.extras.getString(Notification.EXTRA_TITLE))
+    assertTrue(card.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("ANSWER NEEDED"))
+    manager.cancelAll()
+    prefs.edit().putBoolean("push", false).apply()
+    AgentNotifications.receive(context, payload)
+    assertTrue(manager.activeNotifications.isEmpty())
+  }
   private lateinit var context: Application
   private lateinit var manager: NotificationManager
   private lateinit var lifecycle: LifecycleRegistry

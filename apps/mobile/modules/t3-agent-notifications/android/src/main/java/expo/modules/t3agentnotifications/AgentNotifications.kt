@@ -19,6 +19,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.google.firebase.messaging.RemoteMessage
 import expo.modules.notifications.service.ExpoFirebaseMessagingService
+import expo.modules.t3nowbar.NowBarService
 
 class AgentMessagingService : ExpoFirebaseMessagingService() {
   override fun onMessageReceived(remoteMessage: RemoteMessage) {
@@ -118,6 +119,10 @@ object AgentNotifications {
       data["user_id"] == prefs.getString("userId", null)
     val fresh = System.currentTimeMillis() - updatedAt in -MAX_MESSAGE_AGE_MS..MAX_MESSAGE_AGE_MS
     if (registered && fresh && NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+      if (Build.VERSION.SDK_INT >= 26 && data.containsKey("nowbar_rows")) {
+        runCatching { NowBarService.receiveRemoteRows(context, data.getValue("nowbar_rows"), updatedAt) }
+        return
+      }
       channels(context)
       val scheme = prefs.getString("scheme", "t3code") ?: "t3code"
       showAlert(context, prefs, scheme, data)
