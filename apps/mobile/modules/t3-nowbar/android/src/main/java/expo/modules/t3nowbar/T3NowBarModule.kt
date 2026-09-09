@@ -20,8 +20,16 @@ import org.json.JSONArray
 class T3NowBarModule : Module() {
   private val context get() = requireNotNull(appContext.reactContext)
 
+  companion object {
+    var heartbeat: (() -> Unit)? = null
+      private set
+  }
+
   override fun definition() = ModuleDefinition {
     Name("T3NowBar")
+    Events("heartbeat")
+    OnCreate { heartbeat = { sendEvent("heartbeat", emptyMap<String, Any>()) } }
+    OnDestroy { heartbeat = null }
     Function("preferences") {
       val prefs = NowBarService.prefs(context)
       mapOf("enabled" to prefs.getBoolean("enabled", false), "private" to prefs.getBoolean("private", false),
@@ -36,6 +44,8 @@ class T3NowBarModule : Module() {
       edit.apply()
       if (values.has("enabled") && !values.getBoolean("enabled")) {
         context.stopService(Intent(context, NowBarService::class.java))
+      } else {
+        NowBarService.instance?.action("refresh")
       }
     }
     Function("capabilities") {

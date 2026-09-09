@@ -10,6 +10,7 @@ export interface NowBarPreferences {
 }
 
 interface NowBarNativeModule {
+  addListener(event: "heartbeat", listener: () => void): { remove(): void };
   preferences(): NowBarPreferences;
   setPreferences(json: string): void;
   publish(rows: string): boolean;

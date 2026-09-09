@@ -44,6 +44,7 @@ export function NowBarCoordinator() {
       }
     };
     publish();
+    const heartbeat = nowBarNative.addListener("heartbeat", publish);
     // The same snapshot renews the native freshness lease. The foreground
     // service keeps this JS runtime alive while monitored work exists.
     const timer = preferences.enabled && rows.length > 0 ? setInterval(publish, 20_000) : undefined;
@@ -51,10 +52,11 @@ export function NowBarCoordinator() {
       if (state === "active") publish();
     });
     return () => {
+      heartbeat.remove();
       if (timer) clearInterval(timer);
       listener.remove();
     };
-  }, [payload, preferences.enabled, preferences.private, rows.length]);
+  }, [payload, preferences.enabled, rows.length]);
 
   useEffect(() => {
     if (!nowBarNative || !preferences.updates) return;

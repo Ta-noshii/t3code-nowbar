@@ -1,12 +1,14 @@
-import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import * as NodeCrypto from "node:crypto";
+import * as NodeFS from "node:fs";
 
 const version = process.env.NOWBAR_VERSION;
 const versionCode = Number(process.env.NOWBAR_VERSION_CODE);
 if (!version || !Number.isSafeInteger(versionCode) || versionCode < 1)
   throw new Error("Missing release version");
-const sha256 = createHash("sha256").update(readFileSync("release/t3code-nowbar.apk")).digest("hex");
-writeFileSync(
+const sha256 = NodeCrypto.createHash("sha256")
+  .update(NodeFS.readFileSync("release/t3code-nowbar.apk"))
+  .digest("hex");
+NodeFS.writeFileSync(
   "release/update.json",
   JSON.stringify(
     {
@@ -19,4 +21,4 @@ writeFileSync(
     2,
   ) + "\n",
 );
-writeFileSync("release/SHA256SUMS", `${sha256}  t3code-nowbar.apk\n`);
+NodeFS.writeFileSync("release/SHA256SUMS", `${sha256}  t3code-nowbar.apk\n`);

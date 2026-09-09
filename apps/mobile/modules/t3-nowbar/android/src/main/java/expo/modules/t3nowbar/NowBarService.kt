@@ -31,6 +31,10 @@ class NowBarService : Service() {
   private var wakeLock: PowerManager.WakeLock? = null
   private val watchdog = object : Runnable {
     override fun run() {
+      // React Native suspends JS timers when its Activity backgrounds. A
+      // native event keeps the live snapshot lease renewed without relying
+      // on setInterval, while a dead JS runtime still expires below.
+      T3NowBarModule.heartbeat?.invoke()
       when (NowBarPolicy.freshness(SystemClock.elapsedRealtime() - lastHeartbeat)) {
         "expired" -> stopSelf()
         "stale" -> render(stale = true)
@@ -87,6 +91,8 @@ class NowBarService : Service() {
     if (action == "unpin") {
       prefs(this).edit().putStringSet("suppressed", rows.map { it.getString("key") }.toSet()).apply()
       stopSelf()
+    } else if (action == "refresh") {
+      render()
     } else if (action == "next" && rows.isNotEmpty()) {
       val index = rows.indexOfFirst { it.optString("key") == selectedKey }.coerceAtLeast(0)
       selectedKey = rows[(index + 1) % rows.size].getString("key")
