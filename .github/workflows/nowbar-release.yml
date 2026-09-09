@@ -1,0 +1,138 @@
+name: Now Bar sync and release
+
+on:
+  push:
+    branches: [nowbar]
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+    inputs:
+      sync_upstream:
+        description: Merge the latest upstream before building
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nowbar-release
+  cancel-in-progress: false
+
+jobs:
+  android:
+    if: github.repository == 'Ta-noshii/t3code-nowbar'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      APP_VARIANT: production
+      CI: "1"
+      NODE_OPTIONS: --max-old-space-size=6144
+      NOWBAR_VERSION_CODE: ${{ github.run_number }}
+      NOWBAR_VERSION: 1.0.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: nowbar
+          fetch-depth: 0
+
+      - name: Merge upstream without discarding fork changes
+        id: source
+        env:
+          SYNC: ${{ github.event_name == 'schedule' || inputs.sync_upstream == true }}
+        run: |
+          git config user.name 'T3 Now Bar updates'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          before=$(git rev-parse HEAD)
+          if [ "$SYNC" = true ]; then
+            git remote add upstream https://github.com/pingdotgg/t3code.git
+            git fetch upstream main
+            if ! git merge --no-edit upstream/main; then
+              git merge --abort
+              echo 'Upstream conflicts with the fork. The existing app and branch are preserved.' >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          fi
+          after=$(git rev-parse HEAD)
+          echo "sha=$after" >> "$GITHUB_OUTPUT"
+          if [ "$before" = "$after" ] && [ "${{ github.event_name }}" = schedule ]; then
+            echo 'build=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'build=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Free Android build space
+        if: steps.source.outputs.build == 'true'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk /opt/ghc
+
+      - uses: actions/setup-java@v4
+        if: steps.source.outputs.build == 'true'
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: voidzero-dev/setup-vp@v1
+        if: steps.source.outputs.build == 'true'
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: |
+            args:
+              - --filter=@t3tools/mobile...
+              - --frozen-lockfile
+
+      - name: Test notification behavior and mobile types
+        if: steps.source.outputs.build == 'true'
+        run: |
+          vp test run apps/mobile/src/features/nowbar/model.test.ts apps/mobile/src/features/nowbar/update-manifest.test.ts
+          vp run --filter @t3tools/mobile typecheck
+
+      - name: Prebuild Android
+        if: steps.source.outputs.build == 'true'
+        working-directory: apps/mobile
+        run: ../../node_modules/.bin/vp exec expo prebuild --platform android --no-install
+
+      - name: Build APK and test native policies
+        if: steps.source.outputs.build == 'true'
+        working-directory: apps/mobile/android
+        run: |
+          chmod +x gradlew
+          ./gradlew :t3-nowbar:testReleaseUnitTest :app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon --max-workers=2
+
+      - name: Sign and verify the APK
+        if: steps.source.outputs.build == 'true'
+        env:
+          NOWBAR_KEYSTORE_BASE64: ${{ secrets.NOWBAR_KEYSTORE_BASE64 }}
+          NOWBAR_KEYSTORE_PASSWORD: ${{ secrets.NOWBAR_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$NOWBAR_KEYSTORE_BASE64"
+          mkdir -p release
+          printf '%s' "$NOWBAR_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/nowbar.p12"
+          tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          "$tools/apksigner" sign --ks "$RUNNER_TEMP/nowbar.p12" --ks-type PKCS12 --ks-key-alias nowbar --ks-pass env:NOWBAR_KEYSTORE_PASSWORD --key-pass env:NOWBAR_KEYSTORE_PASSWORD --out release/t3code-nowbar.apk apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+          "$tools/apksigner" verify --verbose --print-certs release/t3code-nowbar.apk
+          "$tools/zipalign" -c -P 16 4 release/t3code-nowbar.apk
+          rm "$RUNNER_TEMP/nowbar.p12"
+          node scripts/nowbar-release-manifest.mjs
+
+      - name: Preserve build artifact
+        if: steps.source.outputs.build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nowbar-android
+          path: release/
+
+      - name: Publish verified build and advance synced branch
+        if: steps.source.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # A concurrent human push rejects this fast-forward, so an older
+          # build cannot become the release for a newer branch.
+          git push origin HEAD:nowbar
+          tag="nowbar-$NOWBAR_VERSION"
+          gh release create "$tag" release/t3code-nowbar.apk release/update.json release/SHA256SUMS --target "${{ steps.source.outputs.sha }}" --title "T3 Code Now Bar $NOWBAR_VERSION" --notes-file docs/operations/nowbar-release-notes.md --latest
+          echo "Signed APK: https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag" >> "$GITHUB_STEP_SUMMARY"

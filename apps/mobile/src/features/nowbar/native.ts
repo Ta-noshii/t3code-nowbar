@@ -1,0 +1,59 @@
+import { requireOptionalNativeModule } from "expo";
+import { useSyncExternalStore } from "react";
+import { Platform } from "react-native";
+
+export interface NowBarPreferences {
+  readonly enabled: boolean;
+  readonly private: boolean;
+  readonly results: boolean;
+  readonly updates: boolean;
+}
+
+interface NowBarNativeModule {
+  preferences(): NowBarPreferences;
+  setPreferences(json: string): void;
+  publish(rows: string): boolean;
+  result(row: string): void;
+  capabilities(): {
+    samsung: boolean;
+    sdk: number;
+    notifications: boolean;
+    promoted: boolean;
+    active: boolean;
+  };
+  openSettings(): void;
+  installUpdate(
+    url: string,
+    sha256: string,
+    versionCode: number,
+  ): Promise<"permission" | "installer">;
+}
+
+export const nowBarNative =
+  Platform.OS === "android" ? requireOptionalNativeModule<NowBarNativeModule>("T3NowBar") : null;
+let preferences = nowBarNative?.preferences() ?? {
+  enabled: false,
+  private: false,
+  results: true,
+  updates: true,
+};
+const listeners = new Set<() => void>();
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+};
+const snapshot = () => preferences;
+
+export function useNowBarPreferences() {
+  return useSyncExternalStore(subscribe, snapshot, snapshot);
+}
+export function getNowBarPreferences() {
+  return preferences;
+}
+export function saveNowBarPreferences(patch: Partial<NowBarPreferences>) {
+  nowBarNative?.setPreferences(JSON.stringify(patch));
+  preferences = { ...preferences, ...patch };
+  for (const listener of listeners) listener();
+}

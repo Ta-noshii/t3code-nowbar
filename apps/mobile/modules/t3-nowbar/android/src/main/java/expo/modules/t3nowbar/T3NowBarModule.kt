@@ -1,0 +1,132 @@
+package expo.modules.t3nowbar
+
+import android.app.NotificationManager
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import expo.modules.kotlin.Promise
+import expo.modules.kotlin.modules.Module
+import expo.modules.kotlin.modules.ModuleDefinition
+import java.io.File
+import java.net.URI
+import java.security.MessageDigest
+import org.json.JSONObject
+import org.json.JSONArray
+
+class T3NowBarModule : Module() {
+  private val context get() = requireNotNull(appContext.reactContext)
+
+  override fun definition() = ModuleDefinition {
+    Name("T3NowBar")
+    Function("preferences") {
+      val prefs = NowBarService.prefs(context)
+      mapOf("enabled" to prefs.getBoolean("enabled", false), "private" to prefs.getBoolean("private", false),
+        "results" to prefs.getBoolean("results", true), "updates" to prefs.getBoolean("updates", true))
+    }
+    Function("setPreferences") { json: String ->
+      val values = JSONObject(json)
+      val edit = NowBarService.prefs(context).edit()
+      listOf("enabled", "private", "results", "updates").forEach { key ->
+        if (values.has(key)) edit.putBoolean(key, values.getBoolean(key))
+      }
+      edit.apply()
+      if (values.has("enabled") && !values.getBoolean("enabled")) {
+        context.stopService(Intent(context, NowBarService::class.java))
+      }
+    }
+    Function("capabilities") {
+      val manager = context.getSystemService(NotificationManager::class.java)
+      mapOf(
+        "samsung" to Build.MANUFACTURER.equals("samsung", true),
+        "sdk" to Build.VERSION.SDK_INT,
+        "notifications" to NotificationManagerCompat.from(context).areNotificationsEnabled(),
+        "promoted" to (Build.VERSION.SDK_INT >= 36 && manager.canPostPromotedNotifications()),
+        "active" to (NowBarService.instance != null),
+      )
+    }
+    Function("openSettings") {
+      val action = if (Build.VERSION.SDK_INT >= 36) "android.settings.MANAGE_APP_PROMOTED_NOTIFICATIONS" else Settings.ACTION_APP_NOTIFICATION_SETTINGS
+      val intent = Intent(action).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      try { context.startActivity(intent) } catch (_: Exception) {
+        context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+          .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+      }
+    }
+    Function("publish") { rows: String ->
+      if (!NowBarService.prefs(context).getBoolean("enabled", false) ||
+        !NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+        context.stopService(Intent(context, NowBarService::class.java))
+        false
+      } else if (rows == "[]") {
+        context.stopService(Intent(context, NowBarService::class.java))
+        NowBarService.prefs(context).edit().remove("suppressed").apply()
+        true
+      } else {
+        val incoming = JSONArray(rows)
+        val suppressed = NowBarService.prefs(context).getStringSet("suppressed", emptySet()).orEmpty()
+        val allSuppressed = (0 until incoming.length()).all { incoming.getJSONObject(it).getString("key") in suppressed }
+        val intent = Intent(context, NowBarService::class.java).putExtra("rows", rows)
+        try {
+          // Android only permits starting a fresh FGS while foregrounded. An
+          // existing user-started monitor may receive updates in background.
+          if (allSuppressed) false else {
+            if (NowBarService.instance == null) ContextCompat.startForegroundService(context, intent)
+            else context.startService(intent)
+            true
+          }
+        } catch (_: IllegalStateException) { false }
+      }
+    }
+    Function("result") { row: String -> NowBarService.result(context, row) }
+    AsyncFunction("installUpdate") { url: String, sha256: String, versionCode: Int, promise: Promise ->
+      val appContext = context
+      if (!appContext.packageManager.canRequestPackageInstalls()) {
+        appContext.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+          Uri.parse("package:${appContext.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        promise.resolve("permission")
+      } else {
+        Thread {
+          try {
+            require(url.startsWith("https://github.com/Ta-noshii/t3code-nowbar/releases/download/"))
+            require(Regex("[a-fA-F0-9]{64}").matches(sha256))
+            val destination = File(appContext.cacheDir, "nowbar-updates/update.apk")
+            destination.parentFile!!.mkdirs()
+            val connection = URI(url).toURL().openConnection().apply { connectTimeout = 20_000; readTimeout = 60_000 }
+            val digest = MessageDigest.getInstance("SHA-256")
+            connection.getInputStream().use { input ->
+              destination.outputStream().use { output ->
+                val buffer = ByteArray(65536)
+                var size = 0L
+                while (true) {
+                  val count = input.read(buffer)
+                  if (count < 0) break
+                  size += count
+                  require(size <= 512L * 1024 * 1024) { "Update too large" }
+                  digest.update(buffer, 0, count)
+                  output.write(buffer, 0, count)
+                }
+              }
+            }
+            val actual = digest.digest().joinToString("") { "%02x".format(it) }
+            require(actual.equals(sha256, true)) { "Update checksum did not match" }
+            val archive = requireNotNull(appContext.packageManager.getPackageArchiveInfo(destination.path, 0))
+            val installed = appContext.packageManager.getPackageInfo(appContext.packageName, 0)
+            require(archive.packageName == appContext.packageName && archive.longVersionCode == versionCode.toLong() && archive.longVersionCode > installed.longVersionCode) {
+              "Update does not match this app or is not newer"
+            }
+            val uri = FileProvider.getUriForFile(appContext, "${appContext.packageName}.nowbarupdates", destination)
+            appContext.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
+              .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
+            promise.resolve("installer")
+          } catch (error: Exception) {
+            promise.reject("UPDATE_FAILED", error.message, error)
+          }
+        }.start()
+      }
+    }
+  }
+}

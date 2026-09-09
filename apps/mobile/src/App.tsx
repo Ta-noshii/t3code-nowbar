@@ -23,6 +23,7 @@ import { appAtomRegistry } from "./state/atom-registry";
 import { OverlayPortalHost } from "./components/OverlayPortal";
 import { appBlurTargetRef } from "./lib/appBlurTarget";
 import { useMobileNavigationTheme } from "./lib/useMobileNavigationTheme";
+import { NowBarCoordinator } from "./features/nowbar/NowBarCoordinator";
 
 import "../global.css";
 
@@ -35,7 +36,13 @@ void SplashScreen.preventAutoHideAsync().catch(() => {
 });
 
 const appLinking = {
-  prefixes: [Linking.createURL("/"), "t3code://", "t3code-dev://", "t3code-preview://"],
+  prefixes: [
+    Linking.createURL("/"),
+    "t3code://",
+    "t3code-dev://",
+    "t3code-preview://",
+    "t3code-nowbar://",
+  ],
   // The Expo dev client launches the app via
   // <scheme>://expo-development-client/?url=<packager> — that URL addresses
   // the launcher, not app navigation. Without this filter it falls through
@@ -77,6 +84,7 @@ function AppContent() {
   return (
     <>
       <SplashScreenCoordinator />
+      <NowBarCoordinator />
       <GestureHandlerRootView className="flex-1">
         <KeyboardProvider statusBarTranslucent>
           <SafeAreaProvider>
