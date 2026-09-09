@@ -230,6 +230,7 @@ class NowBarService : Service() {
     NowBarComponents.attach(builder, this, title, displayPhase, color, completed, total, rows.size,
       Build.MANUFACTURER.equals("samsung", true) && prefs(this).getBoolean("custom", true),
       row.optString("provider"), if (privateMode) "" else row.optString("model"), detail,
+      expandedPreview = prefs(this).getBoolean("expanded", false),
       modelLabel = if (privateMode) "" else row.optString("modelLabel", row.optString("model")),
       secondaryInfo = NowBarPolicy.contextSummary(project, displayPhase, started, System.currentTimeMillis()))
     val publicVersion = NotificationCompat.Builder(this, CHANNEL)
@@ -269,6 +270,16 @@ class NowBarService : Service() {
     @Volatile var instance: NowBarService? = null
       private set
 
+    private var lastRemoteRows: Pair<String, Long>? = null
+
+    fun refreshRemoteCard(context: Context) {
+      val cached = lastRemoteRows ?: return
+      val manager = context.getSystemService(NotificationManager::class.java)
+      // A preference change must not resurrect an expired or dismissed card.
+      if (manager.activeNotifications.none { it.id == LIVE_ID }) return
+      receiveRemoteRows(context, cached.first, cached.second)
+    }
+
     private fun createChannels(context: Context) {
       val manager = context.getSystemService(NotificationManager::class.java)
       for ((id, name, oldId) in listOf(Triple(CHANNEL, "Live agent work", "nowbar-live-v1"),
@@ -301,6 +312,7 @@ class NowBarService : Service() {
       val manager = context.getSystemService(NotificationManager::class.java)
       createChannels(context)
       val incoming = runCatching { JSONArray(json) }.getOrNull() ?: return
+      lastRemoteRows = json to updatedAt
       val reads = JSONObject(prefs.getString("readTurns", "{}") ?: "{}")
       val suppressed = prefs.getStringSet("suppressed", emptySet()).orEmpty()
       val rows = (0 until incoming.length()).map { incoming.getJSONObject(it) }.filter { row ->
@@ -370,6 +382,7 @@ class NowBarService : Service() {
       NowBarComponents.attach(builder, context, title, display, color, completed, total, rows.size,
         Build.MANUFACTURER.equals("samsung", true) && prefs.getBoolean("custom", true),
         row.optString("provider"), if (privateMode) "" else row.optString("model"), if (privateMode) summary else row.getString("status"),
+        expandedPreview = prefs.getBoolean("expanded", false),
         modelLabel = if (privateMode) "" else row.optString("modelLabel", row.optString("model")),
         secondaryInfo = NowBarPolicy.contextSummary(if (privateMode) "Private session" else row.optString("project", "T3 Code"),
           display, row.optLong("startedAt"), System.currentTimeMillis()))

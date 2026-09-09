@@ -1,10 +1,10 @@
 An unofficial T3 Code Android fork with Samsung Now Bar and Android Live Updates.
 
-This update removes repeated state text from custom Samsung cards. The custom badge shows the state; the lower row shows project and elapsed time. The full custom layouts, logos, counts and progress remain available. Lab cards use an example task title rather than repeating the selected state.
+Enable **Settings → Samsung Now Bar → Samsung custom components**, then turn on **Expanded layout** to show the larger layout on live and host-push cards. Turn it off to return to automatic compact/expanded selection. Now Bar Lab's Expanded control still previews test cards independently.
 
-Model names now use the same environment/provider catalog as the model picker, for local monitoring and host push. Lab samples also use catalog model names instead of hard-coded model IDs. If a model is absent from the catalog, live cards retain its original ID rather than guessing a name.
+The expanded status line shows the latest completed agent-written update from the current turn. It falls back to the current plan step or general state until an update is available. Approval requests, questions, connection loss and terminal states take precedence. Updates are limited to the three visible working cards and do not publish for every streamed token. Hide task details still conceals status and model names.
 
-The original cutoff in one Samsung lock-screen notification view remains unresolved. These text changes do not claim to fix it. Native tests cover the custom/standard summaries, model labels and retained custom content; actual Samsung rendering still needs confirmation on the phone.
+The original cutoff in one Samsung lock-screen notification view remains unresolved. The expanded layout can be selected explicitly; it does not force Samsung to resize its container. Native tests verify layout switching and status text, while actual Samsung rendering needs phone confirmation.
 
 Approval requests, questions and proposed plans can now nudge once when attention is needed. Finished, failed and stopped work can nudge once and stays in Now Bar until opened or dismissed. Local monitoring and host push share alert history, so switching delivery paths does not repeat an alert. Old cached completions appear silently. **Attention nudges** and **Completion notifications** control alerts separately; Android channel settings and Do Not Disturb still apply.
 

@@ -63,9 +63,17 @@ export function NowBarSettings() {
         <SettingsSwitchRow
           icon="bolt.circle"
           label="Samsung custom components"
-          subtitle="Model logo, compact status and plan progress"
+          subtitle="Model logo, live status and plan progress"
           value={preferences.custom}
           onValueChange={(custom) => saveNowBarPreferences({ custom })}
+        />
+        <SettingsSwitchRow
+          icon="bolt.circle"
+          label="Expanded layout"
+          subtitle="Show the status line and model name on live cards"
+          value={preferences.expanded}
+          disabled={!preferences.custom}
+          onValueChange={(expanded) => saveNowBarPreferences({ expanded })}
         />
         <SettingsRow
           icon="gearshape"

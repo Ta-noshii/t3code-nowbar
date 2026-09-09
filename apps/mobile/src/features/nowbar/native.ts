@@ -10,6 +10,7 @@ export interface NowBarPreferences {
   readonly push: boolean;
   readonly pushLive: boolean;
   readonly custom: boolean;
+  readonly expanded: boolean;
   readonly nudges: boolean;
 }
 
@@ -50,6 +51,7 @@ let preferences = nowBarNative?.preferences() ?? {
   push: false,
   pushLive: true,
   custom: true,
+  expanded: false,
   nudges: true,
 };
 const listeners = new Set<() => void>();

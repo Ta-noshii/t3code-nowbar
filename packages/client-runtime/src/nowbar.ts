@@ -1,3 +1,5 @@
+import type { OrchestrationMessage, OrchestrationThreadStreamItem } from "@t3tools/contracts";
+import * as Stream from "effect/Stream";
 import type { EnvironmentProject, EnvironmentThreadShell } from "./state/shell.ts";
 
 export interface NowBarRow {
@@ -32,8 +34,8 @@ export interface NowBarCatalog {
     readonly models: ReadonlyArray<{
       readonly slug: string;
       readonly name: string;
-      readonly aliases?: ReadonlyArray<string>;
-      readonly isDefault?: boolean;
+      readonly aliases?: ReadonlyArray<string> | undefined;
+      readonly isDefault?: boolean | undefined;
     }>;
   }>;
 }
@@ -63,6 +65,7 @@ export function projectNowBarRows(
   connected: ReadonlySet<string>,
   unread?: { readonly since: number; readonly readTurns: Readonly<Record<string, string>> },
   catalogs?: ReadonlyMap<string, NowBarCatalog>,
+  statuses?: ReadonlyMap<string, string>,
 ): NowBarRow[] {
   const projectsByKey = new Map(
     projects.map((p) => [JSON.stringify([p.environmentId, p.id]), p.title]),
@@ -105,7 +108,10 @@ export function projectNowBarRows(
               ? "Your agent has a question"
               : thread.hasActionableProposedPlan
                 ? "Plan ready for your review"
-                : (progress?.step ??
+                : ((phase === "working" && thread.latestTurn?.state === "running"
+                    ? statuses?.get(threadKey(thread))
+                    : undefined) ??
+                  progress?.step ??
                   (phase === "monitoring" ? "Watching for changes" : "Agent is working"));
       const startedAt = Date.parse(
         thread.latestTurn?.startedAt ?? thread.latestTurn?.requestedAt ?? thread.updatedAt,
@@ -228,4 +234,80 @@ export function completedNowBarRows(
       },
     ];
   });
+}
+
+interface AgentStatusState {
+  readonly text: string;
+  readonly createdAt: string;
+  readonly pendingId: string;
+  readonly pendingText: string;
+  readonly pendingCreatedAt: string;
+}
+export const emptyAgentStatus: AgentStatusState = {
+  text: "",
+  createdAt: "",
+  pendingId: "",
+  pendingText: "",
+  pendingCreatedAt: "",
+};
+
+/** Retain a bounded preview while streaming, publish only complete agent updates. */
+export function updateAgentStatus(
+  state: AgentStatusState,
+  message: Pick<
+    OrchestrationMessage,
+    "id" | "role" | "turnId" | "text" | "streaming" | "createdAt"
+  >,
+  turnId: string,
+): AgentStatusState {
+  if (
+    message.role !== "assistant" ||
+    message.turnId !== turnId ||
+    message.createdAt < state.createdAt
+  )
+    return state;
+  const pending = message.id === state.pendingId ? state.pendingText : "";
+  if (message.streaming)
+    return message.createdAt < state.pendingCreatedAt
+      ? state
+      : {
+          ...state,
+          pendingId: message.id,
+          pendingCreatedAt: message.createdAt,
+          pendingText: (pending + message.text).slice(0, 600),
+        };
+  const text = (message.text || pending).replace(/\s+/g, " ").trim().slice(0, 240);
+  return text
+    ? {
+        ...state,
+        text,
+        createdAt: message.createdAt,
+        ...(message.id === state.pendingId
+          ? { pendingId: "", pendingText: "", pendingCreatedAt: "" }
+          : {}),
+      }
+    : state;
+}
+
+export function agentStatusUpdates<E, R>(
+  source: Stream.Stream<OrchestrationThreadStreamItem, E, R>,
+  turnId: string,
+) {
+  return source.pipe(
+    Stream.scan(emptyAgentStatus, (state, item) => {
+      if (item.kind === "snapshot") {
+        return item.snapshot.thread.messages.reduce((current, message) => {
+          // Snapshot text is already accumulated; later deltas can continue its pending preview.
+          return updateAgentStatus(current, message, turnId);
+        }, emptyAgentStatus);
+      }
+      if (item.kind === "event" && item.event.type === "thread.message-sent") {
+        const message = item.event.payload;
+        return updateAgentStatus(state, { ...message, id: message.messageId }, turnId);
+      }
+      return state;
+    }),
+    Stream.map((state) => state.text),
+    Stream.changes,
+  );
 }

@@ -1,6 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - Local developer verification reads private credential files.
 import * as NodeFSP from "node:fs/promises";
-import { projectNowBarRows } from "@t3tools/client-runtime/nowbar";
+import { agentStatusUpdates, projectNowBarRows, threadKey } from "@t3tools/client-runtime/nowbar";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import {
@@ -16,8 +16,11 @@ import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Queue from "effect/Queue";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
+import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
@@ -133,15 +136,30 @@ const main = Effect.gen(function* () {
     let states = new Map<string, RelayAgentActivityState>();
     let lastSentAt = 0;
     let previousRows = "[]";
+    const statuses = new Map<string, string>();
+    const subscriptions = new Map<string, Effect.Effect<void>>();
+    const statusEvents = yield* Queue.unbounded<{
+      kind: "agent-status";
+      key: string;
+      text: string;
+    }>();
     const unreadSince = device.unreadSince ?? (yield* Clock.currentTimeMillis);
     yield* Effect.logInfo("Watching this paired environment for Android push verification.");
     yield* rpc[ORCHESTRATION_WS_METHODS.subscribeShell]({}).pipe(
+      Stream.merge(Stream.fromQueue(statusEvents)),
       Stream.merge(
         Stream.tick("60 seconds").pipe(Stream.map(() => ({ kind: "heartbeat" as const }))),
       ),
       Stream.runForEach(
         Effect.fnUntraced(function* (item) {
           switch (item.kind) {
+            case "agent-status":
+              if (!subscriptions.has(item.key)) return;
+              if (item.text) {
+                statuses.set(item.key, item.text);
+                yield* Effect.logInfo("Agent status update received.");
+              } else statuses.delete(item.key);
+              break;
             case "synchronized":
               return;
             case "heartbeat":
@@ -190,11 +208,12 @@ const main = Effect.gen(function* () {
             nowMs: now,
           });
           const active = (aggregate?.activeCount ?? 0) > 0;
+          const projectedThreads = [...threads.values()].map((thread) => ({
+            ...thread,
+            environmentId: config.environment.environmentId,
+          }));
           const remoteRows = projectNowBarRows(
-            [...threads.values()].map((thread) => ({
-              ...thread,
-              environmentId: config.environment.environmentId,
-            })),
+            projectedThreads,
             [...projects.values()].map((project) => ({
               ...project,
               environmentId: config.environment.environmentId,
@@ -202,6 +221,7 @@ const main = Effect.gen(function* () {
             new Set([config.environment.environmentId]),
             { since: unreadSince, readTurns: {} },
             new Map([[config.environment.environmentId, config]]),
+            statuses,
           )
             .slice(0, 3)
             .map((row) => ({
@@ -209,6 +229,44 @@ const main = Effect.gen(function* () {
               title: row.title.slice(0, 80),
               status: row.status.slice(0, 100),
             }));
+          const visible = new Set(
+            remoteRows.filter((row) => row.phase === "working").map((row) => row.key),
+          );
+          for (const [key, stop] of subscriptions) {
+            if (!visible.has(key)) {
+              yield* stop;
+              subscriptions.delete(key);
+              statuses.delete(key);
+            }
+          }
+          for (const thread of projectedThreads) {
+            const key = threadKey(thread);
+            if (
+              !visible.has(key) ||
+              subscriptions.has(key) ||
+              thread.latestTurn?.state !== "running"
+            )
+              continue;
+            const fiber = yield* agentStatusUpdates(
+              rpc[ORCHESTRATION_WS_METHODS.subscribeThread]({
+                threadId: thread.id,
+                turnLimit: 1,
+              }).pipe(
+                Stream.tapError(() =>
+                  Effect.logWarning("Agent status stream interrupted; reconnecting."),
+                ),
+                Stream.retry(Schedule.spaced("10 seconds")),
+              ),
+              thread.latestTurn.turnId,
+            ).pipe(
+              Stream.runForEach((text) =>
+                Queue.offer(statusEvents, { kind: "agent-status", key, text }),
+              ),
+              Effect.asVoid,
+              Effect.forkScoped,
+            );
+            subscriptions.set(key, Fiber.interrupt(fiber));
+          }
           while (new TextEncoder().encode(encodeJson(remoteRows)).length > 2400) remoteRows.pop();
           const rowPayload = encodeJson(remoteRows);
           const sameRows = rowPayload === previousRows;

@@ -63,12 +63,13 @@ class T3NowBarModule : Module() {
       mapOf("enabled" to prefs.getBoolean("enabled", false), "private" to prefs.getBoolean("private", false),
         "results" to prefs.getBoolean("results", true), "updates" to prefs.getBoolean("updates", true),
         "push" to prefs.getBoolean("push", false), "pushLive" to prefs.getBoolean("pushLive", true),
+        "expanded" to prefs.getBoolean("expanded", false),
         "custom" to prefs.getBoolean("custom", true), "nudges" to prefs.getBoolean("nudges", true))
     }
     Function("setPreferences") { json: String ->
       val values = JSONObject(json)
       val edit = NowBarService.prefs(context).edit()
-      listOf("enabled", "private", "results", "updates", "push", "pushLive", "custom", "nudges").forEach { key ->
+      listOf("enabled", "private", "results", "updates", "push", "pushLive", "custom", "nudges", "expanded").forEach { key ->
         if (values.has(key)) edit.putBoolean(key, values.getBoolean(key))
       }
       if (values.optBoolean("enabled", false)) edit.remove("suppressed")
@@ -80,7 +81,9 @@ class T3NowBarModule : Module() {
       if (values.has("enabled") && !values.getBoolean("enabled")) {
         context.stopService(Intent(context, NowBarService::class.java))
       } else {
-        Handler(Looper.getMainLooper()).post { NowBarService.instance?.action("refresh") }
+        Handler(Looper.getMainLooper()).post {
+          NowBarService.instance?.action("refresh") ?: NowBarService.refreshRemoteCard(context)
+        }
       }
     }
     Function("capabilities") {

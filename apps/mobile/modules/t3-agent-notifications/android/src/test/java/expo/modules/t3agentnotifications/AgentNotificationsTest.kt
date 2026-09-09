@@ -364,6 +364,30 @@ class AgentNotificationsTest {
     assertFalse(card.extras.containsKey(prefix + "chronometerRemoteView"))
   }
 
+  @Test
+  @Config(sdk = [33, 36])
+  fun livePushCanSwitchExpandedLayoutAndRefreshWithoutAlertingOrResurrectingDismissedCards() {
+    ReflectionHelpers.setStaticField(Build::class.java, "MANUFACTURER", "samsung")
+    val prefs = NowBarService.prefs(context)
+    prefs.edit().clear().putBoolean("push", true).putBoolean("custom", true).apply()
+    val row = nowBarRow("working").put("status", "Running the latest focused tests").put("modelLabel", "Model display name")
+    NowBarService.receiveRemoteRows(context, JSONArray().put(row).toString(), 1_000)
+    fun view(): View = manager.activeNotifications.single { it.id == NowBarService.LIVE_ID }.notification
+      .extras.getParcelable<RemoteViews>("android.ongoingActivityNoti.chronometerRemoteView")!!.apply(context, FrameLayout(context))
+    assertEquals(View.GONE, view().findViewById<View>(expo.modules.t3nowbar.R.id.nowbar_hint).visibility)
+    prefs.edit().putBoolean("expanded", true).apply()
+    NowBarService.refreshRemoteCard(context)
+    assertEquals(View.VISIBLE, view().findViewById<View>(expo.modules.t3nowbar.R.id.nowbar_hint).visibility)
+    assertEquals("Running the latest focused tests", view().findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_hint).text.toString())
+    assertNudge(manager.activeNotifications.single { it.id == NowBarService.LIVE_ID }.notification, false)
+    prefs.edit().putBoolean("expanded", false).apply()
+    NowBarService.refreshRemoteCard(context)
+    assertEquals(View.GONE, view().findViewById<View>(expo.modules.t3nowbar.R.id.nowbar_hint).visibility)
+    manager.cancel(NowBarService.LIVE_ID)
+    NowBarService.refreshRemoteCard(context)
+    assertTrue(manager.activeNotifications.none { it.id == NowBarService.LIVE_ID })
+  }
+
   private fun applyAtSize(views: RemoteViews, width: Float, height: Float): View {
     // Exercise the size selection SystemUI hosts use, which is hidden from the app SDK.
     val selected = ReflectionHelpers.callInstanceMethod<RemoteViews>(views, "getRemoteViewsToApply",

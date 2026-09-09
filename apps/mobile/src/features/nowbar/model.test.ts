@@ -1,6 +1,14 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId, TurnId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  MessageId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+  TurnId,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
+import { emptyAgentStatus, updateAgentStatus } from "@t3tools/client-runtime/nowbar";
 import { completedNowBarRows, projectNowBarRows, readIdentity } from "./model";
 
 const environmentId = EnvironmentId.make("laptop");
@@ -101,6 +109,67 @@ describe("Now Bar agent projection", () => {
       "private-model-v2",
     );
     expect(projectNowBarRows([thread()], [], connected)[0]?.modelLabel).toBe("test");
+  });
+  it("prefers latest agent updates but never covers attention, offline or a new turn", () => {
+    const running = thread();
+    const statuses = new Map([
+      [JSON.stringify([environmentId, running.id, "turn"]), "Running focused tests"],
+    ]);
+    const project = (candidate: EnvironmentThreadShell) =>
+      projectNowBarRows([candidate], [], connected, undefined, undefined, statuses)[0];
+    expect(project(running)?.status).toBe("Running focused tests");
+    expect(
+      project({
+        ...running,
+        backgroundLiveness: "monitoring",
+        latestTurn: { ...running.latestTurn!, state: "completed" },
+      })?.status,
+    ).toBe("Watching for changes");
+    expect(project({ ...running, hasPendingApprovals: true })?.status).toBe(
+      "Approval needed · Review to continue",
+    );
+    expect(
+      projectNowBarRows([running], [], new Set(), undefined, undefined, statuses)[0]?.status,
+    ).toContain("Connection paused");
+    expect(
+      project({ ...running, latestTurn: { ...running.latestTurn!, turnId: TurnId.make("next") } })
+        ?.status,
+    ).toBe("Agent is working");
+  });
+  it("publishes complete agent messages, assembles deltas and ignores old turns and user text", () => {
+    const base = {
+      id: MessageId.make("m1"),
+      role: "assistant" as const,
+      turnId: TurnId.make("turn"),
+      createdAt: "2026-09-09T12:00:00Z",
+      streaming: false,
+      text: "Checking the build",
+    };
+    let state = updateAgentStatus(emptyAgentStatus, base, "turn");
+    expect(state.text).toBe("Checking the build");
+    state = updateAgentStatus(
+      state,
+      { ...base, id: MessageId.make("m2"), streaming: true, text: "Running " },
+      "turn",
+    );
+    state = updateAgentStatus(
+      state,
+      { ...base, id: MessageId.make("m2"), streaming: true, text: "tests now" },
+      "turn",
+    );
+    expect(state.text).toBe("Checking the build");
+    state = updateAgentStatus(state, { ...base, id: MessageId.make("m2"), text: "" }, "turn");
+    expect(state.text).toBe("Running tests now");
+    expect(updateAgentStatus(state, { ...base, role: "user", text: "User prompt" }, "turn")).toBe(
+      state,
+    );
+    expect(updateAgentStatus(state, { ...base, turnId: TurnId.make("old") }, "turn")).toBe(state);
+    expect(updateAgentStatus(state, { ...base, createdAt: "2026-09-08T12:00:00Z" }, "turn")).toBe(
+      state,
+    );
+    expect(
+      updateAgentStatus(state, { ...base, text: "x".repeat(20_000) }, "turn").text,
+    ).toHaveLength(240);
   });
   it("distinguishes approval, question, plan review and background work", () => {
     const cases = [
