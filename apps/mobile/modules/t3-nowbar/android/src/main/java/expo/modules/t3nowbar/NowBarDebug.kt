@@ -17,13 +17,13 @@ import org.json.JSONObject
 /** A separate notification ID and store keep fixtures out of real monitoring and read receipts. */
 object NowBarDebug {
   const val ID = 76327
-  private const val CHANNEL = "nowbar-lab-v1"
+  private const val CHANNEL = "nowbar-lab-v2"
   private fun prefs(context: Context) = context.getSharedPreferences("t3-nowbar-lab", Context.MODE_PRIVATE)
 
-  fun show(context: Context, json: String, custom: Boolean) {
+  fun show(context: Context, json: String, custom: Boolean, nudge: Boolean = false, expanded: Boolean = false) {
     val rows = JSONArray(json)
     require(rows.length() in 1..12)
-    prefs(context).edit().putString("rows", json).putInt("index", 0).putBoolean("custom", custom).apply()
+    prefs(context).edit().putString("rows", json).putInt("index", 0).putBoolean("custom", custom).putBoolean("nudge", nudge).putBoolean("expanded", expanded).apply()
     render(context)
   }
 
@@ -53,8 +53,8 @@ object NowBarDebug {
   private fun render(context: Context) {
     check(NotificationManagerCompat.from(context).areNotificationsEnabled()) { "Allow notifications in Android settings first." }
     val manager = context.getSystemService(NotificationManager::class.java)
-    manager.createNotificationChannel(NotificationChannel(CHANNEL, "Now Bar laboratory", NotificationManager.IMPORTANCE_DEFAULT).apply {
-      setSound(null, null); enableVibration(false)
+    manager.createNotificationChannel(NotificationChannel(CHANNEL, "Now Bar laboratory", NotificationManager.IMPORTANCE_HIGH).apply {
+      enableVibration(true)
     })
     val prefs = prefs(context)
     val rows = JSONArray(prefs.getString("rows", "[]"))
@@ -78,10 +78,12 @@ object NowBarDebug {
       .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
     val open = PendingIntent.getActivity(context, ID, launch, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     val summary = NowBarPolicy.summary(display, row.optLong("startedAt"), System.currentTimeMillis(), completed, total, rows.length())
+    val nudge = prefs.getBoolean("nudge", false)
+    prefs.edit().putBoolean("nudge", false).apply()
     val builder = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.nowbar_pulse)
       .setContentTitle(title).setContentText(summary).setSubText("Now Bar Lab · Test data")
-      .setLargeIcon(NowBarArtwork.emblem(display, color, NowBarPolicy.progress(completed, total)))
-      .setColor(color).setOngoing(true).setOnlyAlertOnce(true).setSilent(true)
+      .setLargeIcon(NowBarBrand.bitmap(context, row.optString("provider"), row.optString("model")))
+      .setColor(color).setOngoing(true).setOnlyAlertOnce(!nudge).setSilent(!nudge)
       .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setRequestPromotedOngoing(true)
       .setShortCriticalText(NowBarPolicy.chip(display, rows.length(), completed, total))
       .setContentIntent(open).setTimeoutAfter(10 * 60 * 1000L)
@@ -102,7 +104,8 @@ object NowBarDebug {
       putInt(prefix + "chipBgColor", color)
       putString(prefix + "chipExpandedText", NowBarPolicy.chip(display, rows.length(), completed, total))
     })
-    NowBarComponents.attach(builder, context, title, display, color, completed, total, rows.length(), open, prefs.getBoolean("custom", true))
+    NowBarComponents.attach(builder, context, title, display, color, completed, total, rows.length(), prefs.getBoolean("custom", true), row.optString("provider"), if (privateMode) "" else row.optString("model"),
+      if (privateMode) summary else row.getString("status"), prefs.getBoolean("expanded", false))
     manager.notify(ID, builder.build())
   }
 }

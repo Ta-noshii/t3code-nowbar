@@ -33,7 +33,7 @@ class T3NowBarModule : Module() {
     Events("heartbeat")
     OnCreate { heartbeat = { sendEvent("heartbeat", emptyMap<String, Any>()) } }
     OnDestroy { heartbeat = null }
-    Function("debugShow") { json: String, custom: Boolean -> NowBarDebug.show(context, json, custom) }
+    Function("debugShow") { json: String, custom: Boolean, nudge: Boolean, expanded: Boolean -> NowBarDebug.show(context, json, custom, nudge, expanded) }
     Function("debugClear") { NowBarDebug.clear(context) }
     Function("debugStatus") { NowBarDebug.status(context) }
     Function("clearRemotePush") {
@@ -63,12 +63,12 @@ class T3NowBarModule : Module() {
       mapOf("enabled" to prefs.getBoolean("enabled", false), "private" to prefs.getBoolean("private", false),
         "results" to prefs.getBoolean("results", true), "updates" to prefs.getBoolean("updates", true),
         "push" to prefs.getBoolean("push", false), "pushLive" to prefs.getBoolean("pushLive", true),
-        "custom" to prefs.getBoolean("custom", true))
+        "custom" to prefs.getBoolean("custom", true), "nudges" to prefs.getBoolean("nudges", true))
     }
     Function("setPreferences") { json: String ->
       val values = JSONObject(json)
       val edit = NowBarService.prefs(context).edit()
-      listOf("enabled", "private", "results", "updates", "push", "pushLive", "custom").forEach { key ->
+      listOf("enabled", "private", "results", "updates", "push", "pushLive", "custom", "nudges").forEach { key ->
         if (values.has(key)) edit.putBoolean(key, values.getBoolean(key))
       }
       if (values.optBoolean("enabled", false)) edit.remove("suppressed")

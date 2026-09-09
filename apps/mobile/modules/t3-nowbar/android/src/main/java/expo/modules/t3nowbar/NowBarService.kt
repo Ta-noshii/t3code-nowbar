@@ -29,6 +29,7 @@ class NowBarService : Service() {
   private var lastHeartbeat = 0L
   private var lastConnectedAt = 0L
   private var foreground = false
+  private var pendingNudge = false
   private var wakeLock: PowerManager.WakeLock? = null
   private val watchdog = object : Runnable {
     override fun run() {
@@ -59,20 +60,15 @@ class NowBarService : Service() {
   override fun onCreate() {
     super.onCreate()
     instance = this
-    val manager = getSystemService(NotificationManager::class.java)
-    manager.createNotificationChannel(NotificationChannel(CHANNEL, "Live agent work", NotificationManager.IMPORTANCE_DEFAULT).apply {
-      description = "Now Bar, lock screen and status chip while you monitor agent work"
-      setSound(null, null)
-      enableVibration(false)
-    })
-    manager.createNotificationChannel(NotificationChannel(RESULTS, "Agent results", NotificationManager.IMPORTANCE_DEFAULT))
+    createChannels(this)
     lastHeartbeat = SystemClock.elapsedRealtime()
     lastConnectedAt = lastHeartbeat
     handler.postDelayed(watchdog, 15_000)
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    if (intent == null || !prefs(this).getBoolean("enabled", false)) {
+    if (intent == null || !prefs(this).getBoolean("enabled", false) ||
+      !NotificationManagerCompat.from(this).areNotificationsEnabled()) {
       stopSelf()
       return START_NOT_STICKY
     }
@@ -87,6 +83,7 @@ class NowBarService : Service() {
       if (rows.any { it.optString("phase") != "offline" }) lastConnectedAt = SystemClock.elapsedRealtime()
       rows.firstOrNull { (it.optString("phase") == "attention" || isReady(it)) && attentionIdentity(it) !in previousAttention }
         ?.let { selectedKey = it.getString("key") }
+      NowBarAlerts.consume(this, rows)?.let { selectedKey = it.getString("key"); pendingNudge = true }
       lastHeartbeat = SystemClock.elapsedRealtime()
       if (rows.isEmpty()) {
         stopSelf()
@@ -161,12 +158,14 @@ class NowBarService : Service() {
     val total = if (phase == "offline" || privateMode || ready) 0 else row.optInt("total")
     val completed = row.optInt("completed").coerceIn(0, total.coerceAtLeast(0))
     val chip = NowBarPolicy.chip(displayPhase, rows.size, completed, total)
-    val artwork = NowBarArtwork.emblem(displayPhase, color, if (phase == "completed") 100 else NowBarPolicy.progress(completed, total))
+    val artwork = NowBarBrand.bitmap(this, row.optString("provider"), row.optString("model"))
     val started = row.optLong("startedAt")
     val summary = NowBarPolicy.summary(displayPhase, started, System.currentTimeMillis(), completed, total, rows.size)
     val open = openIntent(this, row.getString("url"))
     val unpin = actionIntent(if (ready) "dismiss" else "unpin")
     val detail = if (rows.size > 1) "$status · ${rows.indexOf(row) + 1}/${rows.size} agents" else status
+    val nudge = pendingNudge && !stale
+    pendingNudge = false
     val builder = NotificationCompat.Builder(this, CHANNEL)
       .setSmallIcon(R.drawable.nowbar_pulse)
       .setLargeIcon(artwork)
@@ -175,8 +174,8 @@ class NowBarService : Service() {
       .setSubText(project)
       .setColor(color)
       .setOngoing(true)
-      .setOnlyAlertOnce(true)
-      .setSilent(true)
+      .setOnlyAlertOnce(!nudge)
+      .setSilent(!nudge)
       .setCategory(NotificationCompat.CATEGORY_PROGRESS)
       .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
       .setContentIntent(open)
@@ -215,7 +214,6 @@ class NowBarService : Service() {
         putParcelable(prefix + "nowbarIcon", emblem)
         putParcelable(prefix + "firstIcon", emblem)
         putInt(prefix + "actionBgColor", color)
-        putParcelable(prefix + "nowbarPendingIntentOnSubScreen", open)
         if (total > 0) {
           putInt(prefix + "progress", NowBarPolicy.progress(completed, total) ?: 0)
           putInt(prefix + "progressMax", 100)
@@ -229,8 +227,9 @@ class NowBarService : Service() {
         }
       })
     }
-    NowBarComponents.attach(builder, this, title, displayPhase, color, completed, total, rows.size, open,
-      Build.MANUFACTURER.equals("samsung", true) && prefs(this).getBoolean("custom", true))
+    NowBarComponents.attach(builder, this, title, displayPhase, color, completed, total, rows.size,
+      Build.MANUFACTURER.equals("samsung", true) && prefs(this).getBoolean("custom", true),
+      row.optString("provider"), if (privateMode) "" else row.optString("model"), detail)
     val publicVersion = NotificationCompat.Builder(this, CHANNEL)
       .setSmallIcon(R.drawable.nowbar_pulse).setContentTitle("T3 Code Now Bar")
       .setContentText(if (ready) "Unread agent result" else if (phase == "attention") "Your agent needs you" else "Agent work in progress")
@@ -262,21 +261,43 @@ class NowBarService : Service() {
   companion object {
     private fun isReady(row: JSONObject) = row.optString("phase") in listOf("completed", "error", "stopped")
     private fun attentionIdentity(row: JSONObject) = "${row.optString("key")}:${row.optString("phase")}:${row.optString("kind")}"
-    const val CHANNEL = "nowbar-live-v1"
-    const val RESULTS = "nowbar-results-v1"
+    const val CHANNEL = "nowbar-live-v2"
+    const val RESULTS = "nowbar-results-v2"
     const val LIVE_ID = 76326
     @Volatile var instance: NowBarService? = null
       private set
+
+    private fun createChannels(context: Context) {
+      val manager = context.getSystemService(NotificationManager::class.java)
+      for ((id, name, oldId) in listOf(Triple(CHANNEL, "Live agent work", "nowbar-live-v1"),
+        Triple(RESULTS, "Agent results", "nowbar-results-v1"))) {
+        if (manager.getNotificationChannel(id) != null) continue
+        val old = manager.getNotificationChannel(oldId)
+        // New defaults enable supported nudges, but never undo a user's channel choice.
+        val chosenImportance = old != null && (old.importance == NotificationManager.IMPORTANCE_NONE ||
+          (Build.VERSION.SDK_INT >= 29 && old.hasUserSetImportance()))
+        val chosenSound = old != null && Build.VERSION.SDK_INT >= 30 && old.hasUserSetSound()
+        manager.createNotificationChannel(NotificationChannel(id, name,
+          if (chosenImportance) old!!.importance else NotificationManager.IMPORTANCE_HIGH).apply {
+          enableVibration(true)
+          if (old != null && (chosenImportance || chosenSound)) {
+            setSound(old.sound, old.audioAttributes)
+            vibrationPattern = old.vibrationPattern
+            enableVibration(old.shouldVibrate())
+          }
+        })
+      }
+    }
 
     fun prefs(context: Context) = context.getSharedPreferences("t3-nowbar", Context.MODE_PRIVATE)
 
     /** FCM can post a native card without starting a foreground service or JS. */
     fun receiveRemoteRows(context: Context, json: String, updatedAt: Long) {
+      if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
       val prefs = prefs(context)
       if (!prefs.getBoolean("push", false) || instance != null || updatedAt < prefs.getLong("lastPushAt", 0)) return
       val manager = context.getSystemService(NotificationManager::class.java)
-      manager.createNotificationChannel(NotificationChannel(CHANNEL, "Live agent work", NotificationManager.IMPORTANCE_DEFAULT).apply { setSound(null, null); enableVibration(false) })
-      manager.createNotificationChannel(NotificationChannel(RESULTS, "Agent results", NotificationManager.IMPORTANCE_DEFAULT))
+      createChannels(context)
       val incoming = runCatching { JSONArray(json) }.getOrNull() ?: return
       val reads = JSONObject(prefs.getString("readTurns", "{}") ?: "{}")
       val suppressed = prefs.getStringSet("suppressed", emptySet()).orEmpty()
@@ -289,21 +310,19 @@ class NowBarService : Service() {
       }
       prefs.edit().putLong("lastPushAt", updatedAt).apply()
       if (rows.isEmpty()) { manager.cancel(LIVE_ID); return }
-      val row = rows.first()
+      val nudgeRow = NowBarAlerts.consume(context, rows)
+      val row = nudgeRow ?: rows.first()
       val key = row.getString("key")
       val phase = row.getString("phase")
       val ready = isReady(row)
-      val previousKey = prefs.getString("remoteRowKey", null)
-      val previousPhase = prefs.getString("remoteRowPhase", null)
-      val needsAlert = (ready && prefs.getBoolean("results", true)) || phase == "attention"
-      if (needsAlert && (previousKey != key || previousPhase != phase || prefs.getString("remoteRowKind", null) != row.optString("kind"))) {
-        // result() normally requires local monitoring; remote delivery is its own opt-in.
-        val privateMode = prefs.getBoolean("private", false)
-        manager.notify(key.hashCode(), NotificationCompat.Builder(context, RESULTS)
+      val nudge = nudgeRow != null
+      if (nudge && !prefs.getBoolean("pushLive", true)) {
+        val alertRow = nudgeRow!!
+        manager.notify(alertRow.getString("key").hashCode(), NotificationCompat.Builder(context, RESULTS)
           .setSmallIcon(R.drawable.nowbar_pulse)
-          .setContentTitle(if (privateMode) "T3 Code" else row.getString("title"))
-          .setContentText(if (phase == "attention") "Your agent needs you" else if (phase == "error") "Agent needs a look" else "Result ready to review")
-          .setContentIntent(openIntent(context, row.getString("url")))
+          .setContentTitle(if (prefs.getBoolean("private", false)) "T3 Code" else alertRow.getString("title"))
+          .setContentText(if (alertRow.optString("phase") == "attention") "Your agent needs you" else "Result ready to review")
+          .setContentIntent(openIntent(context, alertRow.getString("url")))
           .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setAutoCancel(true).build())
       }
       prefs.edit().putString("remoteRowKey", key).putString("remoteRowPhase", phase).putString("remoteRowKind", row.optString("kind")).apply()
@@ -322,13 +341,13 @@ class NowBarService : Service() {
       val completed = row.optInt("completed").coerceIn(0, total)
       val title = if (privateMode) "T3 Code · Agent work" else row.getString("title")
       val summary = NowBarPolicy.summary(display, row.optLong("startedAt"), System.currentTimeMillis(), completed, total, rows.size)
-      val artwork = NowBarArtwork.emblem(display, color, if (phase == "completed") 100 else NowBarPolicy.progress(completed, total))
+      val artwork = NowBarBrand.bitmap(context, row.optString("provider"), row.optString("model"))
       val open = openIntent(context, row.getString("url"))
       val dismiss = PendingIntent.getBroadcast(context, key.hashCode(), Intent(context, NowBarActionReceiver::class.java).setAction("remote-dismiss").putExtra("key", key), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
       val builder = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.nowbar_pulse)
         .setLargeIcon(artwork).setContentTitle(title).setContentText(summary)
         .setStyle(NotificationCompat.BigTextStyle().bigText(if (privateMode) summary else "$summary\n${row.getString("status")}"))
-        .setColor(color).setOngoing(true).setOnlyAlertOnce(true).setSilent(true)
+        .setColor(color).setOngoing(true).setOnlyAlertOnce(!nudge).setSilent(!nudge)
         .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setRequestPromotedOngoing(true)
         .setShortCriticalText(NowBarPolicy.chip(display, rows.size, completed, total))
         .setContentIntent(open).setDeleteIntent(dismiss)
@@ -345,10 +364,10 @@ class NowBarService : Service() {
         putParcelable(prefix + "nowbarIcon", Icon.createWithBitmap(artwork))
         putInt(prefix + "chipBgColor", color)
         putString(prefix + "chipExpandedText", NowBarPolicy.chip(display, rows.size, completed, total))
-        putParcelable(prefix + "nowbarPendingIntentOnSubScreen", open)
       })
-      NowBarComponents.attach(builder, context, title, display, color, completed, total, rows.size, open,
-        Build.MANUFACTURER.equals("samsung", true) && prefs.getBoolean("custom", true))
+      NowBarComponents.attach(builder, context, title, display, color, completed, total, rows.size,
+        Build.MANUFACTURER.equals("samsung", true) && prefs.getBoolean("custom", true),
+        row.optString("provider"), if (privateMode) "" else row.optString("model"), if (privateMode) summary else row.getString("status"))
       manager.notify(LIVE_ID, builder.build())
     }
 

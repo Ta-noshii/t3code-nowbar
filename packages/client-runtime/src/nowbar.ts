@@ -18,6 +18,9 @@ export interface NowBarRow {
   readonly completed: number;
   readonly total: number;
   readonly url: string;
+  readonly provider?: string;
+  readonly model?: string;
+  readonly eventAt?: number;
 }
 
 export function threadKey(thread: EnvironmentThreadShell): string {
@@ -93,6 +96,13 @@ export function projectNowBarRows(
       );
       return {
         key: threadKey(thread),
+        provider: thread.session?.providerName ?? String(thread.modelSelection.instanceId),
+        model: thread.modelSelection.model,
+        // Keep streaming message updates from changing an otherwise identical push payload.
+        eventAt:
+          Date.parse(
+            thread.latestTurn?.completedAt ?? thread.latestTurn?.requestedAt ?? thread.createdAt,
+          ) || 0,
         title: thread.title.slice(0, 120),
         project:
           projectsByKey.get(JSON.stringify([thread.environmentId, thread.projectId])) ?? "T3 Code",

@@ -5,20 +5,41 @@ import { AppText as Text } from "../../components/AppText";
 import { debugRow, debugStates, type DebugState } from "./debug";
 import { nowBarNative } from "./native";
 
-async function postDebugState(id: DebugState, all: boolean, progress: number, custom: boolean) {
+async function postDebugState(
+  id: DebugState,
+  all: boolean,
+  progress: number,
+  custom: boolean,
+  nudge: boolean,
+  expanded: boolean,
+  brand: string,
+) {
   if (!(await Notifications.requestPermissionsAsync()).granted)
     throw new Error("Allow notifications in Android settings first.");
   const now = Date.now();
   const rows = all
     ? debugStates.map((state) => debugRow(state.id, now, progress))
     : [debugRow(id, now, progress)];
-  nowBarNative?.debugShow(JSON.stringify(rows), custom);
+  nowBarNative?.debugShow(
+    JSON.stringify(
+      rows.map((row) => ({
+        ...row,
+        provider: brand === "Claude" ? "claudeAgent" : "codex",
+        model: brand === "Claude" ? "claude-sonnet" : "gpt-6",
+      })),
+    ),
+    custom,
+    nudge,
+    expanded,
+  );
 }
 
 export function NowBarLab({ onClose }: { onClose: () => void }) {
   const [selected, setSelected] = useState<DebugState>("progress");
   const [custom, setCustom] = useState(true);
   const [steps, setSteps] = useState(3);
+  const [expanded, setExpanded] = useState(false);
+  const [brand, setBrand] = useState("OpenAI");
   const [status, setStatus] = useState(() => nowBarNative?.debugStatus());
   const refresh = () => setStatus(nowBarNative?.debugStatus());
   useEffect(() => {
@@ -27,9 +48,17 @@ export function NowBarLab({ onClose }: { onClose: () => void }) {
     });
     return () => subscription.remove();
   }, []);
-  const show = async (id: DebugState, all = false, progress = steps, useCustom = custom) => {
+  const show = async (
+    id: DebugState,
+    all = false,
+    progress = steps,
+    useCustom = custom,
+    nudge = false,
+    large = expanded,
+    provider = brand,
+  ) => {
     try {
-      await postDebugState(id, all, progress, useCustom);
+      await postDebugState(id, all, progress, useCustom, nudge, large, provider);
       setSelected(id);
       refresh();
     } catch (error) {
@@ -48,7 +77,7 @@ export function NowBarLab({ onClose }: { onClose: () => void }) {
         borderRadius: 14,
         paddingVertical: 14,
         paddingHorizontal: 16,
-        backgroundColor: active ? "#7350B8" : "#292333",
+        backgroundColor: active ? "#38383D" : "#222225",
         flexGrow: 1,
       }}
     >
@@ -57,7 +86,7 @@ export function NowBarLab({ onClose }: { onClose: () => void }) {
   );
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: "#100E16", paddingTop: 52, paddingBottom: 24 }}>
+      <View style={{ flex: 1, backgroundColor: "#141416", paddingTop: 52, paddingBottom: 24 }}>
         <View
           style={{
             paddingHorizontal: 22,
@@ -107,7 +136,7 @@ export function NowBarLab({ onClose }: { onClose: () => void }) {
               </View>
             ))}
           </View>
-          <View style={{ padding: 18, borderRadius: 18, backgroundColor: "#1C1728", gap: 14 }}>
+          <View style={{ padding: 18, borderRadius: 18, backgroundColor: "#202023", gap: 14 }}>
             <Text style={{ color: "#D7C5F7", fontWeight: "700" }}>
               Interactive plan · {steps}/8 steps
             </Text>
@@ -140,11 +169,61 @@ export function NowBarLab({ onClose }: { onClose: () => void }) {
           {button("Load all states · Next state on notification", () => {
             void show("working", true);
           })}
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            {button(
+              "Compact",
+              () => {
+                setExpanded(false);
+                void show(selected, false, steps, custom, false, false);
+              },
+              !expanded,
+            )}
+            {button(
+              "Expanded layout",
+              () => {
+                setExpanded(true);
+                void show(selected, false, steps, custom, false, true);
+              },
+              expanded,
+            )}
+          </View>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            {button(
+              "OpenAI",
+              () => {
+                setBrand("OpenAI");
+                void show(selected, false, steps, custom, false, expanded, "OpenAI");
+              },
+              brand === "OpenAI",
+            )}
+            {button(
+              "Claude",
+              () => {
+                setBrand("Claude");
+                void show(selected, false, steps, custom, false, expanded, "Claude");
+              },
+              brand === "Claude",
+            )}
+          </View>
+          {button("Nudge selected state", () => {
+            void show(selected, false, steps, custom, true);
+          })}
+          {button("Test attention nudge", () => {
+            void show("input", false, steps, custom, true);
+          })}
+          {button("Test completion nudge", () => {
+            void show("completed", false, steps, custom, true);
+          })}
+          <Text style={{ color: "#AAAAB0", fontSize: 12 }}>
+            Expanded layout forces the larger test layout. Normal notifications let Samsung choose
+            the size. Nudges use Android's alert channel and respect your pop-up and Do Not Disturb
+            settings.
+          </Text>
           {button("Clear test notification", () => {
             nowBarNative?.debugClear();
             refresh();
           })}
-          <View style={{ borderRadius: 18, padding: 18, backgroundColor: "#1C1728", gap: 8 }}>
+          <View style={{ borderRadius: 18, padding: 18, backgroundColor: "#202023", gap: 8 }}>
             <Text style={{ color: "#E9DCF9", fontWeight: "700" }}>Device diagnostics</Text>
             <Text style={{ color: "#B8AEC9" }}>
               Test posted: {status?.active ? "Yes" : "No"}

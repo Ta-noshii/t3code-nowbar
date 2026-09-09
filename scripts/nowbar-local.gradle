@@ -1,0 +1,11 @@
+// Shiki's find_library opts out of cross-compilation roots and can find /usr/lib/libonig.so.
+// Bind the packaged Android library explicitly for this arm64-only local build.
+gradle.beforeProject { project ->
+  if (project.path == ':app') {
+    project.plugins.withId('com.android.application') {
+      def onig = project.rootProject.file('../node_modules/react-native-shiki-engine/android/src/main/jniLibs/arm64-v8a/libonig.so')
+      if (!onig.isFile()) throw new GradleException('Missing arm64 Shiki Oniguruma library')
+      project.android.defaultConfig.externalNativeBuild.cmake.arguments.add('-DONIG_LIB=' + onig.absolutePath)
+    }
+  }
+}

@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo } from "react";
 import { AppState } from "react-native";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { useWorkspaceState } from "../../state/workspace";
-import { completedNowBarRows, projectNowBarRows, type NowBarRow } from "./model";
+import { projectNowBarRows } from "./model";
 import { nowBarNative, useNowBarPreferences } from "./native";
 import { checkNowBarUpdate } from "./updates";
 import { useNowBarUnread } from "./unread";
@@ -13,7 +13,6 @@ export function NowBarCoordinator() {
   const { environments } = useWorkspaceState();
   const preferences = useNowBarPreferences();
   const unread = useNowBarUnread();
-  const previous = useRef<NowBarRow[]>([]);
   const connected = useMemo(
     () =>
       new Set(
@@ -26,15 +25,6 @@ export function NowBarCoordinator() {
     [threads, projects, connected, unread],
   );
   const payload = JSON.stringify(rows);
-
-  useEffect(() => {
-    if (!nowBarNative) return;
-    if (preferences.enabled) {
-      for (const row of completedNowBarRows(previous.current, threads, connected))
-        nowBarNative.result(JSON.stringify(row));
-      previous.current = rows;
-    } else previous.current = [];
-  }, [rows, threads, connected, preferences.enabled]);
 
   useEffect(() => {
     if (!nowBarNative) return;

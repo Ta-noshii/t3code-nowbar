@@ -1,23 +1,13 @@
 An unofficial T3 Code Android fork with Samsung Now Bar and Android Live Updates.
 
-This update fixes the missing Samsung custom layout. Both live monitoring and native push now attach real RemoteViews to Samsung's ongoing-activity component slot: a phase emblem, state badge, plan count, segmented progress and review hint. Android's standard notification content remains available for promotion. The state colors are preserved. Samsung beta rendering still needs a device check.
+This update makes the custom Samsung layout more compact, replaces the terminal artwork with the active model or provider logo, and adds a larger layout with task details and model name. The custom view leaves taps available to Samsung’s expansion controller. The smaller layout and expanded preview are tested with Android RemoteViews; actual expansion and clipping on the S26 Ultra still need a phone check.
 
-Open **Settings ? Samsung Now Bar ? Now Bar Lab** to test working, plan progress, approvals, questions, proposed plans, background work, watching, disconnection, unread completion, errors and stopped runs. Compare Samsung custom and standard layouts, adjust plan steps, or load every state and use Next state on the notification. Tests have their own notification ID, never touch real threads, and expire after ten minutes. **Clear test notification** removes them immediately.
+Approval requests, questions and proposed plans can now nudge once when attention is needed. Finished, failed and stopped work can nudge once and stays in Now Bar until opened or dismissed. Local monitoring and host push share alert history, so switching delivery paths does not repeat an alert. Old cached completions appear silently. **Attention nudges** and **Completion notifications** control alerts separately; Android channel settings and Do Not Disturb still apply.
 
-Completed real work stays as **Ready to review** until opened or dismissed. Read receipts are device-local.
+Open **Settings → Samsung Now Bar → Now Bar Lab** to test working, plan progress, approvals, questions, proposed plans, background work, watching, disconnection, unread completion, errors and stopped runs. Compare custom and standard layouts, inspect the expanded preview, switch OpenAI/Claude branding, adjust progress and nudge the selected state. Tests never run an agent or change unread threads. **Clear test notification** removes them; otherwise they expire after ten minutes. The expanded preview forces the larger layout for inspection and does not prove Samsung selects it during normal expansion.
 
-Google sign-in and live Now Bar monitoring have been confirmed working by the user on the S26 Ultra. Samsung controls the outer card and may ignore individual visual hints; the new appearance still needs device verification. This build includes Firebase for the private misc sender. In Settings, enable Device Notifications and share the generated setup file with the sender administrator to enroll this phone. Ongoing Agent Activity uses the same custom Now Bar states when updates arrive remotely. Delivery still needs verification on the enrolled phone; Android force-stop blocks push until the app is reopened.
+Install `t3code-nowbar.apk` over the existing fork to retain settings and pairing. Google sign-in, host Firebase delivery and Samsung custom RemoteViews were confirmed working on the S26 Ultra in the previous release. This release uses the same package and signing key. Enable **Settings → Samsung Now Bar → Live agent work** and allow Live notifications in Samsung settings.
 
-- Live task title, plan steps, elapsed time, and attention states across connected environments.
-- One promoted card with Open/Review, Next agent, and Unpin actions.
-- Samsung status chip, lock-screen text, progress, colors, and tap intent.
-- Optional completion alerts and private task details.
-- GitHub update checks with checksum validation and Android's signed APK installer.
+The private sender watches the T3 environment on misc; other environments use local live monitoring. If Firebase rotates the phone token, use **Share push setup with misc** again. Signing out or disabling Device Notifications stops the native receiver. Android force-stop blocks push until the app is reopened. No Firebase service-account key is included in the APK.
 
-Install `t3code-nowbar.apk`, pair your environments, then enable **Settings → Samsung Now Bar → Live agent work** and allow Live notifications in Samsung settings. It installs alongside the official app. Pairing must be done again in this separate app.
-
-Monitoring uses the phone's existing connections. Enable it with the app open; Android can still stop the app, especially under battery restrictions. A stale monitor changes to a connection warning and then stops. Open the app to reconnect. Samsung controls final Now Bar placement; One UI beta behavior needs verification on your device.
-
-Automatic update checks offer new APKs; Android asks before installation. This fork does not consume the official app's Expo OTA channel.
-
-The private sender initially watches the T3 environment running on misc. Other environments still use local live monitoring. If Firebase rotates the phone token, use **Share push setup with misc** again. Signing out or disabling Device Notifications stops the native receiver. No Firebase service-account key is included in the APK.
+Automatic update checks offer new APKs with checksum validation; Android asks before installation. This fork does not consume the official app’s Expo OTA channel. Both local builds and scheduled upstream builds advance the same release version sequence.

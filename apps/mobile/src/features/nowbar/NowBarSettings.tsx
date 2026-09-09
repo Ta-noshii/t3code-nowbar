@@ -52,56 +52,18 @@ export function NowBarSettings() {
   return (
     <View className="gap-3">
       {lab && <NowBarLab onClose={() => setLab(false)} />}
-      <View
-        style={{
-          backgroundColor: "#171423",
-          borderRadius: 26,
-          padding: 22,
-          borderWidth: 1,
-          borderColor: "#39304F",
-          gap: 14,
-        }}
-      >
-        <View
-          style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
-        >
-          <Text style={{ color: "#B9A0FF", fontSize: 12, letterSpacing: 2 }}>T3 · NOW BAR</Text>
-          <Text style={{ color: "#8F879F", fontSize: 12 }}>Preview</Text>
-        </View>
-        <Text style={{ color: "#F4EFFF", fontSize: 23, fontWeight: "700" }}>
-          Your agents, at a glance.
-        </Text>
-        <View style={{ backgroundColor: "#262034", borderRadius: 30, padding: 16, gap: 10 }}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-            <Text style={{ color: "#D4BFFF", fontWeight: "700" }}>ϟ Building your next idea</Text>
-            <Text style={{ color: "#B9A0FF" }}>3/5</Text>
-          </View>
-          <View style={{ flexDirection: "row", gap: 4 }}>
-            {[0, 1, 2, 3, 4].map((step) => (
-              <View
-                key={step}
-                style={{
-                  flex: 1,
-                  height: 5,
-                  borderRadius: 3,
-                  backgroundColor: step < 3 ? "#A78BFA" : "#443A56",
-                }}
-              />
-            ))}
-          </View>
-          <Text style={{ color: "#ABA0BB", fontSize: 12 }}>
-            Real plan progress · One tap to jump back in
-          </Text>
-        </View>
-        <Text style={{ color: "#A99DB8", fontSize: 12 }}>
-          Violet · Working Amber · Needs you Mint · Ready to review
-        </Text>
-      </View>
       <SettingsSection title="Samsung Now Bar">
+        <SettingsSwitchRow
+          icon="bell.badge"
+          label="Attention nudges"
+          subtitle="Alert once for approvals, questions and plans ready for review"
+          value={preferences.nudges}
+          onValueChange={(nudges) => saveNowBarPreferences({ nudges })}
+        />
         <SettingsSwitchRow
           icon="bolt.circle"
           label="Samsung custom components"
-          subtitle="Native state emblem, status badge and segmented progress"
+          subtitle="Model logo, compact status and plan progress"
           value={preferences.custom}
           onValueChange={(custom) => saveNowBarPreferences({ custom })}
         />
@@ -124,7 +86,7 @@ export function NowBarSettings() {
         <SettingsSwitchRow
           icon="bell.badge"
           label="Completion notifications"
-          subtitle="Let me know when monitored work finishes"
+          subtitle="Alert once when work finishes, fails or is stopped"
           value={preferences.results}
           onValueChange={(results) => saveNowBarPreferences({ results })}
         />

@@ -39,6 +39,30 @@ function thread(patch: Partial<EnvironmentThreadShell> = {}): EnvironmentThreadS
 }
 
 describe("Now Bar agent projection", () => {
+  it("shares active provider, model and event time with native and host push consumers", () => {
+    const running = thread({
+      modelSelection: { instanceId: ProviderInstanceId.make("cursor"), model: "claude-sonnet" },
+    });
+    expect(projectNowBarRows([running], [], connected)[0]).toMatchObject({
+      provider: "cursor",
+      model: "claude-sonnet",
+      eventAt: Date.parse(running.latestTurn!.requestedAt),
+    });
+    const finished = {
+      ...running,
+      latestTurn: {
+        ...running.latestTurn!,
+        state: "completed" as const,
+        completedAt: "2026-09-09T10:05:00Z",
+      },
+    };
+    expect(
+      projectNowBarRows([finished], [], connected, { since: 0, readTurns: {} })[0]?.eventAt,
+    ).toBe(Date.parse(finished.latestTurn.completedAt));
+    expect(
+      projectNowBarRows([{ ...running, updatedAt: "2026-09-09T10:01:00Z" }], [], connected),
+    ).toEqual(projectNowBarRows([running], [], connected));
+  });
   it("distinguishes approval, question, plan review and background work", () => {
     const cases = [
       { hasPendingApprovals: true },

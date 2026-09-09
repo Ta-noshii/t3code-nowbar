@@ -19,12 +19,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import expo.modules.t3nowbar.NowBarService
 import expo.modules.t3nowbar.NowBarActionReceiver
+import expo.modules.t3nowbar.NowBarAlerts
+import expo.modules.t3nowbar.NowBarBrand
+import expo.modules.t3nowbar.NowBarComponents
 import expo.modules.t3nowbar.NowBarDebug
 import android.widget.RemoteViews
 import android.widget.FrameLayout
@@ -131,6 +136,214 @@ class AgentNotificationsTest {
     AgentNotifications.receive(context, payload)
     assertTrue(manager.activeNotifications.isEmpty())
   }
+  private fun nowBarRow(phase: String, kind: String = "", key: String = "turn") = JSONObject()
+    .put("key", key).put("phase", phase).put("kind", kind).put("title", "A task")
+    .put("status", "A status").put("url", "t3code-nowbar://threads/environment/thread")
+    .put("eventAt", System.currentTimeMillis())
+
+  private fun pushRows(vararg rows: JSONObject) {
+    NowBarService.receiveRemoteRows(context, JSONArray(rows.toList()).toString(), System.currentTimeMillis())
+  }
+
+  private fun liveCard() = manager.activeNotifications.single { it.id == NowBarService.LIVE_ID }.notification
+  private fun assertNudge(card: Notification, expected: Boolean) {
+    assertEquals(!expected, card.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)
+    if (expected) assertTrue(card.group != "silent")
+    else assertEquals("silent", card.group)
+    assertTrue(card.fullScreenIntent == null)
+  }
+
+  @Test
+  @Config(sdk = [33])
+  fun nudgesOncePerTransitionAcrossLocalAndPushUpdates() {
+    NowBarService.prefs(context).edit().clear().putBoolean("push", true).apply()
+    val working = nowBarRow("working")
+    pushRows(working)
+    assertNudge(liveCard(), false)
+    for ((phase, kind) in listOf("attention" to "approval", "working" to "", "attention" to "input",
+      "attention" to "plan", "completed" to "", "error" to "", "stopped" to "")) {
+      val row = nowBarRow(phase, kind)
+      pushRows(row)
+      assertNudge(liveCard(), phase != "working")
+      pushRows(row.put("status", "Updated detail"))
+      assertNudge(liveCard(), false)
+      assertTrue(NowBarAlerts.consume(context, listOf(row)) == null)
+    }
+    // JS-driven monitoring uses this same persistent ledger before posting.
+    val local = nowBarRow("attention", "approval", "next-turn")
+    assertEquals(local, NowBarAlerts.consume(context, listOf(local)))
+    pushRows(local)
+    assertNudge(liveCard(), false)
+    assertEquals(1, manager.activeNotifications.size)
+    assertEquals(NotificationManager.IMPORTANCE_HIGH, manager.getNotificationChannel(NowBarService.CHANNEL).importance)
+    assertTrue(manager.getNotificationChannel(NowBarService.CHANNEL).shouldVibrate())
+    assertFalse(manager.getNotificationChannel(NowBarService.CHANNEL).canBypassDnd())
+  }
+
+  @Test
+  @Config(sdk = [33])
+  fun localServiceHandoverKeepsPushAlertsDeduplicatedAndUnreadResultsPinned() {
+    NowBarService.prefs(context).edit().clear().putBoolean("push", true).putBoolean("enabled", true).apply()
+    val attention = nowBarRow("attention", "approval")
+    pushRows(attention)
+    assertNudge(liveCard(), true)
+    val controller = Robolectric.buildService(NowBarService::class.java).create()
+    try {
+      controller.get().onStartCommand(Intent(context, NowBarService::class.java)
+        .putExtra("rows", JSONArray().put(attention).toString()), 0, 1)
+      assertNudge(liveCard(), false)
+      val done = nowBarRow("completed")
+      controller.get().onStartCommand(Intent(context, NowBarService::class.java)
+        .putExtra("rows", JSONArray().put(done).toString()), 0, 2)
+      assertNudge(liveCard(), true)
+      assertEquals(0L, liveCard().timeoutAfter)
+      assertTrue(liveCard().flags and Notification.FLAG_ONGOING_EVENT != 0)
+      controller.get().action("refresh")
+      assertNudge(liveCard(), false)
+    } finally {
+      controller.destroy()
+    }
+    pushRows(nowBarRow("completed"))
+    assertNudge(liveCard(), false)
+  }
+
+  @Test
+  @Config(sdk = [33])
+  fun staleCompletionsStayVisibleSilentlyAndOfflineDoesNotRearmAttention() {
+    NowBarService.prefs(context).edit().clear().putBoolean("push", true).apply()
+    for (phase in listOf("completed", "error", "stopped")) {
+      val row = nowBarRow(phase, key = phase).put("eventAt", System.currentTimeMillis() - 600_001)
+      pushRows(row)
+      assertNudge(liveCard(), false)
+      assertEquals(0L, liveCard().timeoutAfter)
+    }
+    val attention = nowBarRow("attention", "approval")
+    pushRows(attention)
+    assertNudge(liveCard(), true)
+    pushRows(nowBarRow("offline"))
+    assertNudge(liveCard(), false)
+    pushRows(attention)
+    assertNudge(liveCard(), false)
+    pushRows(nowBarRow("working"))
+    pushRows(attention)
+    assertNudge(liveCard(), true)
+  }
+
+  @Test
+  @Config(sdk = [33])
+  fun permissionDenialDoesNotConsumeLocalOrPushNudges() {
+    val prefs = NowBarService.prefs(context)
+    prefs.edit().clear().putBoolean("push", true).apply()
+    val attention = nowBarRow("attention", "input")
+    shadowOf(manager).setNotificationsEnabled(false)
+    assertTrue(NowBarAlerts.consume(context, listOf(attention)) == null)
+    pushRows(attention)
+    assertFalse(prefs.contains("alertStates"))
+    assertFalse(prefs.contains("lastPushAt"))
+    assertTrue(manager.activeNotifications.isEmpty())
+    shadowOf(manager).setNotificationsEnabled(true)
+    pushRows(attention)
+    assertNudge(liveCard(), true)
+  }
+
+  @Test
+  @Config(sdk = [33])
+  fun preferencesSuppressNudgesWithoutHidingResultsOrReplayingOnEnable() {
+    val prefs = NowBarService.prefs(context)
+    prefs.edit().clear().putBoolean("push", true).putBoolean("nudges", false).putBoolean("results", false).apply()
+    pushRows(nowBarRow("attention", "input"))
+    assertNudge(liveCard(), false)
+    pushRows(nowBarRow("completed"))
+    assertNudge(liveCard(), false)
+    prefs.edit().putBoolean("nudges", true).putBoolean("results", true).apply()
+    pushRows(nowBarRow("completed"))
+    assertNudge(liveCard(), false)
+    pushRows(nowBarRow("error"))
+    assertNudge(liveCard(), true)
+    prefs.edit().putBoolean("pushLive", false).apply()
+    pushRows(nowBarRow("attention", "plan", "other"))
+    val result = manager.activeNotifications.single().notification
+    assertEquals(NowBarService.RESULTS, result.channelId)
+    assertTrue(manager.getNotificationChannel(NowBarService.RESULTS).shouldVibrate())
+  }
+
+  @Test
+  @Config(sdk = [33])
+  fun postingDoesNotOverrideChannelSettings() {
+    NowBarService.prefs(context).edit().clear().putBoolean("push", true).apply()
+    val channel = android.app.NotificationChannel(NowBarService.CHANNEL, "Live agent work", NotificationManager.IMPORTANCE_LOW)
+    channel.enableVibration(false)
+    channel.setSound(null, null)
+    manager.createNotificationChannel(channel)
+    manager.createNotificationChannel(android.app.NotificationChannel("nowbar-results-v1", "Agent results", NotificationManager.IMPORTANCE_NONE))
+    pushRows(nowBarRow("attention", "approval"))
+    assertEquals(NotificationManager.IMPORTANCE_NONE, manager.getNotificationChannel(NowBarService.RESULTS).importance)
+    val stored = manager.getNotificationChannel(NowBarService.CHANNEL)
+    assertEquals(NotificationManager.IMPORTANCE_LOW, stored.importance)
+    assertFalse(stored.shouldVibrate())
+    assertTrue(stored.sound == null)
+    assertFalse(stored.canBypassDnd())
+  }
+
+  @Test
+  @Config(sdk = [33])
+  fun oneBatchSelectsOneNudgeAndRecordsAllStates() {
+    NowBarService.prefs(context).edit().clear().putBoolean("push", true).apply()
+    val attention = nowBarRow("attention", "approval", "first")
+    val done = nowBarRow("completed", key = "second")
+    pushRows(attention, done)
+    assertNudge(liveCard(), true)
+    assertEquals(1, manager.activeNotifications.size)
+    pushRows(done, attention)
+    assertNudge(liveCard(), false)
+  }
+
+  @Test
+  @Config(sdk = [33, 36], qualifiers = "mdpi")
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  fun compactAndExpandedLayoutsInflateWithRealBrandingAndNoTapInterception() {
+    for ((provider, model, resource) in listOf(
+      Triple("codex", "gpt-6", expo.modules.t3nowbar.R.drawable.nowbar_openai),
+      Triple("cursor", "claude-sonnet", expo.modules.t3nowbar.R.drawable.nowbar_claude),
+      Triple("cursor", "auto", expo.modules.t3nowbar.R.drawable.nowbar_cursor),
+      Triple("grok", "grok", expo.modules.t3nowbar.R.drawable.nowbar_grok),
+      Triple("opencode", "auto", expo.modules.t3nowbar.R.drawable.nowbar_opencode),
+      Triple("antigravity", "gemini", expo.modules.t3nowbar.R.drawable.nowbar_pulse))) {
+      assertEquals(resource, NowBarBrand.resource(provider, model))
+      val bitmap = NowBarBrand.bitmap(context, provider, model)
+      val pixels = IntArray(bitmap.width * bitmap.height)
+      bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+      assertTrue("$provider logo must render visible pixels", pixels.any { android.graphics.Color.alpha(it) > 0 })
+    }
+    val compact = NowBarComponents.views(context, "A long task name that must ellipsize", "working",
+      android.graphics.Color.GREEN, 3, 8, 1, "codex", "gpt-6", "Building the feature", false)
+      .apply(context, FrameLayout(context))
+    compact.measure(View.MeasureSpec.makeMeasureSpec(160, View.MeasureSpec.EXACTLY),
+      View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+    compact.layout(0, 0, compact.measuredWidth, compact.measuredHeight)
+    assertTrue("Compact height: ${compact.measuredHeight}", compact.measuredHeight in 24..48)
+    assertFalse(compact.hasOnClickListeners())
+    assertEquals(View.GONE, compact.findViewById<View>(expo.modules.t3nowbar.R.id.nowbar_hint).visibility)
+    val longExpanded = NowBarComponents.views(context, "Long task ".repeat(12), "working",
+      android.graphics.Color.GREEN, 3, 8, 1, "codex", "gpt-6", "Long status ".repeat(20), true)
+      .apply(context, FrameLayout(context))
+    longExpanded.measure(View.MeasureSpec.makeMeasureSpec(280, View.MeasureSpec.EXACTLY),
+      View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+    assertTrue("Expanded height: ${longExpanded.measuredHeight}", longExpanded.measuredHeight <= 110)
+    val row = nowBarRow("attention", "plan").put("model", "claude-sonnet").put("status", "Review the proposed plan")
+    NowBarDebug.show(context, JSONArray().put(row).toString(), true, true, true)
+    val card = manager.activeNotifications.single { it.id == NowBarDebug.ID }.notification
+    assertNudge(card, true)
+    val expanded = card.extras.getParcelable<RemoteViews>("android.ongoingActivityNoti.chronometerRemoteView")!!
+      .apply(context, FrameLayout(context))
+    assertEquals("Review the proposed plan", expanded.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_hint).text.toString())
+    assertEquals("claude-sonnet", expanded.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_model).text.toString())
+    assertFalse(expanded.hasOnClickListeners())
+    assertFalse(card.extras.containsKey("android.ongoingActivityNoti.nowbarPendingIntentOnSubScreen"))
+    NowBarDebug.next(context)
+    assertNudge(manager.activeNotifications.single { it.id == NowBarDebug.ID }.notification, false)
+  }
+
   private lateinit var context: Application
   private lateinit var manager: NotificationManager
   private lateinit var lifecycle: LifecycleRegistry
