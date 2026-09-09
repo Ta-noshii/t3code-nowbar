@@ -45,6 +45,11 @@ internal object NowBarPolicy {
       if (count > 1) "$count agents" else null,
     ).joinToString(" · ")
 
+  fun contextSummary(project: String, phase: String, startedAt: Long, now: Long): String =
+    listOfNotNull(project.takeIf { it.isNotBlank() },
+      if (phase in listOf("working", "background", "monitoring")) elapsed(startedAt, now) else null,
+    ).joinToString(" · ")
+
   fun chip(phase: String, count: Int, completed: Int, total: Int): String = when {
     phase == "approval" -> "Allow?"
     phase == "input" -> "Reply"

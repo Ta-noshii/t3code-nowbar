@@ -105,7 +105,10 @@ object NowBarDebug {
       putString(prefix + "chipExpandedText", NowBarPolicy.chip(display, rows.length(), completed, total))
     })
     NowBarComponents.attach(builder, context, title, display, color, completed, total, rows.length(), prefs.getBoolean("custom", true), row.optString("provider"), if (privateMode) "" else row.optString("model"),
-      if (privateMode) summary else row.getString("status"), prefs.getBoolean("expanded", false))
+      if (privateMode) summary else row.getString("status"), prefs.getBoolean("expanded", false),
+      modelLabel = if (privateMode) "" else row.optString("modelLabel", row.optString("model")),
+      secondaryInfo = NowBarPolicy.contextSummary(if (privateMode) "Private session" else "Now Bar Lab",
+        display, row.optLong("startedAt"), System.currentTimeMillis()))
     manager.notify(ID, builder.build())
   }
 }

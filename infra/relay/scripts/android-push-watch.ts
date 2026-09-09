@@ -201,6 +201,7 @@ const main = Effect.gen(function* () {
             })),
             new Set([config.environment.environmentId]),
             { since: unreadSince, readTurns: {} },
+            new Map([[config.environment.environmentId, config]]),
           )
             .slice(0, 3)
             .map((row) => ({

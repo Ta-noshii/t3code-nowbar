@@ -229,7 +229,9 @@ class NowBarService : Service() {
     }
     NowBarComponents.attach(builder, this, title, displayPhase, color, completed, total, rows.size,
       Build.MANUFACTURER.equals("samsung", true) && prefs(this).getBoolean("custom", true),
-      row.optString("provider"), if (privateMode) "" else row.optString("model"), detail)
+      row.optString("provider"), if (privateMode) "" else row.optString("model"), detail,
+      modelLabel = if (privateMode) "" else row.optString("modelLabel", row.optString("model")),
+      secondaryInfo = NowBarPolicy.contextSummary(project, displayPhase, started, System.currentTimeMillis()))
     val publicVersion = NotificationCompat.Builder(this, CHANNEL)
       .setSmallIcon(R.drawable.nowbar_pulse).setContentTitle("T3 Code Now Bar")
       .setContentText(if (ready) "Unread agent result" else if (phase == "attention") "Your agent needs you" else "Agent work in progress")
@@ -367,7 +369,10 @@ class NowBarService : Service() {
       })
       NowBarComponents.attach(builder, context, title, display, color, completed, total, rows.size,
         Build.MANUFACTURER.equals("samsung", true) && prefs.getBoolean("custom", true),
-        row.optString("provider"), if (privateMode) "" else row.optString("model"), if (privateMode) summary else row.getString("status"))
+        row.optString("provider"), if (privateMode) "" else row.optString("model"), if (privateMode) summary else row.getString("status"),
+        modelLabel = if (privateMode) "" else row.optString("modelLabel", row.optString("model")),
+        secondaryInfo = NowBarPolicy.contextSummary(if (privateMode) "Private session" else row.optString("project", "T3 Code"),
+          display, row.optLong("startedAt"), System.currentTimeMillis()))
       manager.notify(LIVE_ID, builder.build())
     }
 

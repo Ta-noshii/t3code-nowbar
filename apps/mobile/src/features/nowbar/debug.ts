@@ -1,3 +1,4 @@
+import type { NowBarCatalog } from "@t3tools/client-runtime/nowbar";
 import type { NowBarRow } from "./model";
 
 export const debugStates = [
@@ -48,10 +49,11 @@ export function debugRow(id: DebugState, now: number, completed = 3): NowBarRow 
   const state = debugStates.find((state) => state.id === id)!;
   return {
     key: JSON.stringify(["nowbar-lab", id, "test-turn"]),
-    title: state.label,
+    title: "Example task",
     project: "Now Bar Lab",
     provider: "codex",
-    model: "gpt-6",
+    model: "",
+    modelLabel: "Example model",
     eventAt: now,
     phase: state.phase,
     ...("kind" in state ? { kind: state.kind } : {}),
@@ -60,5 +62,19 @@ export function debugRow(id: DebugState, now: number, completed = 3): NowBarRow 
     total: id === "progress" ? 8 : 0,
     completed: id === "progress" ? Math.max(0, Math.min(8, completed)) : 0,
     url: "t3code-nowbar://",
+  };
+}
+
+export function debugModel(catalogs: Iterable<NowBarCatalog>, brand: string) {
+  const driver = brand === "Claude" ? "claudeAgent" : "codex";
+  const providers = [...catalogs]
+    .flatMap((catalog) => catalog.providers)
+    .filter((provider) => provider.driver === driver);
+  const models = providers.flatMap((provider) => provider.models);
+  const model = models.find((model) => model.isDefault) ?? models[0];
+  return {
+    provider: driver,
+    model: model?.slug ?? "",
+    modelLabel: model?.name ?? `Example ${brand} model`,
   };
 }

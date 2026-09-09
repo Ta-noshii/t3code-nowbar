@@ -20,7 +20,22 @@ export interface NowBarRow {
   readonly url: string;
   readonly provider?: string;
   readonly model?: string;
+  readonly modelLabel?: string;
   readonly eventAt?: number;
+}
+
+// The same provider catalog supplies names to the mobile model picker and host push.
+export interface NowBarCatalog {
+  readonly providers: ReadonlyArray<{
+    readonly instanceId: string;
+    readonly driver: string;
+    readonly models: ReadonlyArray<{
+      readonly slug: string;
+      readonly name: string;
+      readonly aliases?: ReadonlyArray<string>;
+      readonly isDefault?: boolean;
+    }>;
+  }>;
 }
 
 export function threadKey(thread: EnvironmentThreadShell): string {
@@ -47,6 +62,7 @@ export function projectNowBarRows(
   projects: ReadonlyArray<EnvironmentProject>,
   connected: ReadonlySet<string>,
   unread?: { readonly since: number; readonly readTurns: Readonly<Record<string, string>> },
+  catalogs?: ReadonlyMap<string, NowBarCatalog>,
 ): NowBarRow[] {
   const projectsByKey = new Map(
     projects.map((p) => [JSON.stringify([p.environmentId, p.id]), p.title]),
@@ -94,10 +110,20 @@ export function projectNowBarRows(
       const startedAt = Date.parse(
         thread.latestTurn?.startedAt ?? thread.latestTurn?.requestedAt ?? thread.updatedAt,
       );
+      const provider = catalogs
+        ?.get(thread.environmentId)
+        ?.providers.find((provider) => provider.instanceId === thread.modelSelection.instanceId);
+      const model =
+        provider?.models.find((model) => model.slug === thread.modelSelection.model) ??
+        provider?.models.find((model) => model.aliases?.includes(thread.modelSelection.model));
       return {
         key: threadKey(thread),
-        provider: thread.session?.providerName ?? String(thread.modelSelection.instanceId),
+        provider:
+          provider?.driver ??
+          thread.session?.providerName ??
+          String(thread.modelSelection.instanceId),
         model: thread.modelSelection.model,
+        modelLabel: model?.name ?? thread.modelSelection.model,
         // Keep streaming message updates from changing an otherwise identical push payload.
         eventAt:
           Date.parse(

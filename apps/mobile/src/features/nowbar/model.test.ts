@@ -63,6 +63,45 @@ describe("Now Bar agent projection", () => {
       projectNowBarRows([{ ...running, updatedAt: "2026-09-09T10:01:00Z" }], [], connected),
     ).toEqual(projectNowBarRows([running], [], connected));
   });
+  it("resolves exact names in the thread's environment and provider, preserving unknown model IDs", () => {
+    const catalogs = new Map([
+      [
+        environmentId,
+        {
+          providers: [
+            {
+              instanceId: "codex",
+              driver: "codex",
+              models: [{ slug: "test", name: "GPT Display Name" }],
+            },
+            {
+              instanceId: "custom",
+              driver: "cursor",
+              models: [{ slug: "test", name: "Claude Display Name" }],
+            },
+          ],
+        },
+      ],
+    ]);
+    const selected = thread({
+      modelSelection: { instanceId: ProviderInstanceId.make("custom"), model: "test" },
+    });
+    expect(projectNowBarRows([selected], [], connected, undefined, catalogs)[0]).toMatchObject({
+      provider: "cursor",
+      model: "test",
+      modelLabel: "Claude Display Name",
+    });
+    expect(projectNowBarRows([thread()], [], connected, undefined, catalogs)[0]?.modelLabel).toBe(
+      "GPT Display Name",
+    );
+    const unknown = thread({
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "private-model-v2" },
+    });
+    expect(projectNowBarRows([unknown], [], connected, undefined, catalogs)[0]?.modelLabel).toBe(
+      "private-model-v2",
+    );
+    expect(projectNowBarRows([thread()], [], connected)[0]?.modelLabel).toBe("test");
+  });
   it("distinguishes approval, question, plan review and background work", () => {
     const cases = [
       { hasPendingApprovals: true },

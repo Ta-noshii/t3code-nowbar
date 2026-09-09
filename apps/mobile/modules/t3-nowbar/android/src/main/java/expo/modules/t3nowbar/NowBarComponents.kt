@@ -12,7 +12,7 @@ import androidx.core.app.NotificationCompat
 /** Samsung's custom slot is separate from Android customContentView, which would lose promotion. */
 object NowBarComponents {
   fun views(context: Context, title: String, phase: String, color: Int, completed: Int, total: Int,
-    count: Int, provider: String, model: String, detail: String, expanded: Boolean): RemoteViews {
+    count: Int, provider: String, model: String, detail: String, expanded: Boolean, modelLabel: String = model): RemoteViews {
     val views = RemoteViews(context.packageName, if (expanded) R.layout.nowbar_expanded else R.layout.nowbar_components)
     views.setImageViewBitmap(R.id.nowbar_emblem, NowBarBrand.bitmap(context, provider, model))
     views.setTextViewText(R.id.nowbar_task, title)
@@ -41,24 +41,31 @@ object NowBarComponents {
     }
     views.setContentDescription(R.id.nowbar_segments, "$completed of $total plan steps complete")
     views.setTextViewText(R.id.nowbar_hint, detail)
-    views.setTextViewText(R.id.nowbar_model, model)
+    views.setTextViewText(R.id.nowbar_model, modelLabel)
+    views.setViewVisibility(R.id.nowbar_model, if (expanded && modelLabel.isNotBlank()) View.VISIBLE else View.GONE)
     // Leave the surface tap to Samsung's expand/collapse controller.
     return views
   }
 
   fun attach(builder: NotificationCompat.Builder, context: Context, title: String, phase: String,
     color: Int, completed: Int, total: Int, count: Int, enabled: Boolean,
-    provider: String = "", model: String = "", detail: String = "", expandedPreview: Boolean = false) {
+    provider: String = "", model: String = "", detail: String = "", expandedPreview: Boolean = false,
+    modelLabel: String = model, secondaryInfo: String? = null) {
     if (!enabled) return
-    val compact = views(context, title, phase, color, completed, total, count, provider, model, detail, false)
-    val expanded = views(context, title, phase, color, completed, total, count, provider, model, detail, true)
+    val compact = views(context, title, phase, color, completed, total, count, provider, model, detail, false, modelLabel)
+    val expanded = views(context, title, phase, color, completed, total, count, provider, model, detail, true, modelLabel)
     val views = if (expandedPreview) expanded else if (Build.VERSION.SDK_INT >= 31)
       RemoteViews(mapOf(SizeF(160f, 48f) to compact, SizeF(280f, 110f) to expanded)) else compact
     builder.addExtras(Bundle().apply {
       val prefix = "android.ongoingActivityNoti."
       putInt(prefix + "style", 1)
+      // The custom badge/metric already carry state and progress; use the host row for context.
+      if (secondaryInfo != null) {
+        putString(prefix + "secondaryInfo", secondaryInfo)
+        putString(prefix + "nowbarSecondaryInfo", secondaryInfo)
+      }
       putParcelable(prefix + "chronometerRemoteView", views)
-      putCharSequence(prefix + "chronometerRemoteViewTag", "t3_nowbar_components_v4")
+      putCharSequence(prefix + "chronometerRemoteViewTag", "t3_nowbar_components_v5")
       putInt(prefix + "chronometerRemoteViewPosition", 1)
       putInt(prefix + "nowbarChronometerPosition", 1)
       putInt(prefix + "actionType", 1)

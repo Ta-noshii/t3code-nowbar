@@ -344,6 +344,26 @@ class AgentNotificationsTest {
     assertNudge(manager.activeNotifications.single { it.id == NowBarDebug.ID }.notification, false)
   }
 
+  @Test
+  @Config(sdk = [33, 36])
+  fun customCardUsesCatalogNameAndDistinctContextWhileStandardKeepsState() {
+    val row = nowBarRow("working").put("model", "provider/internal-id")
+      .put("modelLabel", "Provider Model Display Name").put("title", "Example task")
+    NowBarDebug.show(context, JSONArray().put(row).toString(), true, false, true)
+    var card = manager.activeNotifications.single { it.id == NowBarDebug.ID }.notification
+    val prefix = "android.ongoingActivityNoti."
+    assertFalse(card.extras.getString(prefix + "secondaryInfo")!!.contains("WORKING"))
+    assertTrue(card.extras.getString(prefix + "secondaryInfo")!!.startsWith("Now Bar Lab"))
+    val layout = card.extras.getParcelable<RemoteViews>(prefix + "chronometerRemoteView")!!
+      .apply(context, FrameLayout(context))
+    assertEquals("Working", layout.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_badge).text.toString())
+    assertEquals("Provider Model Display Name", layout.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_model).text.toString())
+    NowBarDebug.show(context, JSONArray().put(row).toString(), false)
+    card = manager.activeNotifications.single { it.id == NowBarDebug.ID }.notification
+    assertTrue(card.extras.getString(prefix + "secondaryInfo")!!.startsWith("WORKING"))
+    assertFalse(card.extras.containsKey(prefix + "chronometerRemoteView"))
+  }
+
   private fun applyAtSize(views: RemoteViews, width: Float, height: Float): View {
     // Exercise the size selection SystemUI hosts use, which is hidden from the app SDK.
     val selected = ReflectionHelpers.callInstanceMethod<RemoteViews>(views, "getRemoteViewsToApply",

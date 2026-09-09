@@ -21,6 +21,11 @@ class NowBarPolicyTest {
     assertEquals("1h 5m", NowBarPolicy.elapsed(1_000, 3_901_000))
     assertEquals("NEEDS YOU · just started", NowBarPolicy.summary("attention", 1_000, 2_000, 0, 0, 1))
   }
+  @Test fun customContextDoesNotRepeatStateProgressOrUnread() {
+    assertEquals("My project · 2m", NowBarPolicy.contextSummary("My project", "working", 1_000, 121_000))
+    for (phase in listOf("approval", "input", "plan", "completed", "error", "stopped", "offline"))
+      assertEquals("My project", NowBarPolicy.contextSummary("My project", phase, 1_000, 121_000))
+  }
   @Test fun stalledConnectionsCannotKeepShowingLiveWork() {
     assertEquals("fresh", NowBarPolicy.freshness(74_999))
     assertEquals("stale", NowBarPolicy.freshness(75_000))

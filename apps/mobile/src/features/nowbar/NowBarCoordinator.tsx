@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { AppState } from "react-native";
-import { useProjects, useThreadShells } from "../../state/entities";
+import { useProjects, useServerConfigs, useThreadShells } from "../../state/entities";
 import { useWorkspaceState } from "../../state/workspace";
 import { projectNowBarRows } from "./model";
 import { nowBarNative, useNowBarPreferences } from "./native";
@@ -9,6 +9,7 @@ import { useNowBarUnread } from "./unread";
 
 export function NowBarCoordinator() {
   const threads = useThreadShells();
+  const catalogs = useServerConfigs();
   const projects = useProjects();
   const { environments } = useWorkspaceState();
   const preferences = useNowBarPreferences();
@@ -21,8 +22,8 @@ export function NowBarCoordinator() {
     [environments],
   );
   const rows = useMemo(
-    () => projectNowBarRows(threads, projects, connected, unread),
-    [threads, projects, connected, unread],
+    () => projectNowBarRows(threads, projects, connected, unread, catalogs),
+    [threads, projects, connected, unread, catalogs],
   );
   const payload = JSON.stringify(rows);
 

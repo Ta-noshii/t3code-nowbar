@@ -1,8 +1,10 @@
 An unofficial T3 Code Android fork with Samsung Now Bar and Android Live Updates.
 
-This update restores the full custom Now Bar layout from .11. The .12 single-line fallback caused Samsung to omit custom status, counts and progress in views that had previously worked. The full compact layout is the default again, with the expanded layout, provider logos and progress preserved.
+This update removes repeated state text from custom Samsung cards. The custom badge shows the state; the lower row shows project and elapsed time. The full custom layouts, logos, counts and progress remain available. Lab cards use an example task title rather than repeating the selected state.
 
-This is a regression recovery. The original clipping in one Samsung lock-screen notification view remains unresolved; this release does not claim to fix it. Native tests now require the default view itself to retain custom status, counts and progress.
+Model names now use the same environment/provider catalog as the model picker, for local monitoring and host push. Lab samples also use catalog model names instead of hard-coded model IDs. If a model is absent from the catalog, live cards retain its original ID rather than guessing a name.
+
+The original cutoff in one Samsung lock-screen notification view remains unresolved. These text changes do not claim to fix it. Native tests cover the custom/standard summaries, model labels and retained custom content; actual Samsung rendering still needs confirmation on the phone.
 
 Approval requests, questions and proposed plans can now nudge once when attention is needed. Finished, failed and stopped work can nudge once and stays in Now Bar until opened or dismissed. Local monitoring and host push share alert history, so switching delivery paths does not repeat an alert. Old cached completions appear silently. **Attention nudges** and **Completion notifications** control alerts separately; Android channel settings and Do Not Disturb still apply.
 

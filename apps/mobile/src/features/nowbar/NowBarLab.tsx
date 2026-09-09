@@ -2,7 +2,8 @@ import * as Notifications from "expo-notifications";
 import { useEffect, useState } from "react";
 import { Alert, AppState, Modal, Pressable, ScrollView, View } from "react-native";
 import { AppText as Text } from "../../components/AppText";
-import { debugRow, debugStates, type DebugState } from "./debug";
+import { useServerConfigs } from "../../state/entities";
+import { debugModel, debugRow, debugStates, type DebugState } from "./debug";
 import { nowBarNative } from "./native";
 
 async function postDebugState(
@@ -12,7 +13,7 @@ async function postDebugState(
   custom: boolean,
   nudge: boolean,
   expanded: boolean,
-  brand: string,
+  model: ReturnType<typeof debugModel>,
 ) {
   if (!(await Notifications.requestPermissionsAsync()).granted)
     throw new Error("Allow notifications in Android settings first.");
@@ -24,8 +25,7 @@ async function postDebugState(
     JSON.stringify(
       rows.map((row) => ({
         ...row,
-        provider: brand === "Claude" ? "claudeAgent" : "codex",
-        model: brand === "Claude" ? "claude-sonnet" : "gpt-6",
+        ...model,
       })),
     ),
     custom,
@@ -35,6 +35,7 @@ async function postDebugState(
 }
 
 export function NowBarLab({ onClose }: { onClose: () => void }) {
+  const catalogs = useServerConfigs();
   const [selected, setSelected] = useState<DebugState>("progress");
   const [custom, setCustom] = useState(true);
   const [steps, setSteps] = useState(3);
@@ -58,7 +59,15 @@ export function NowBarLab({ onClose }: { onClose: () => void }) {
     provider = brand,
   ) => {
     try {
-      await postDebugState(id, all, progress, useCustom, nudge, large, provider);
+      await postDebugState(
+        id,
+        all,
+        progress,
+        useCustom,
+        nudge,
+        large,
+        debugModel(catalogs.values(), provider),
+      );
       setSelected(id);
       refresh();
     } catch (error) {
