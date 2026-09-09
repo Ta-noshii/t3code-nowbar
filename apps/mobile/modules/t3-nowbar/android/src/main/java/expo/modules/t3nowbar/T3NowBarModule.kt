@@ -83,11 +83,12 @@ class T3NowBarModule : Module() {
         val incoming = JSONArray(rows)
         val suppressed = NowBarService.prefs(context).getStringSet("suppressed", emptySet()).orEmpty()
         val allSuppressed = (0 until incoming.length()).all { incoming.getJSONObject(it).getString("key") in suppressed }
+        val allOffline = (0 until incoming.length()).all { incoming.getJSONObject(it).optString("phase") == "offline" }
         val intent = Intent(context, NowBarService::class.java).putExtra("rows", rows)
         try {
           // Android only permits starting a fresh FGS while foregrounded. An
           // existing user-started monitor may receive updates in background.
-          if (allSuppressed) false else {
+          if (allSuppressed || (allOffline && NowBarService.instance == null)) false else {
             if (NowBarService.instance == null) ContextCompat.startForegroundService(context, intent)
             else context.startService(intent)
             true

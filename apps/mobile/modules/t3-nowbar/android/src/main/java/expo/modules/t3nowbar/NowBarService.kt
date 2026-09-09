@@ -27,10 +27,16 @@ class NowBarService : Service() {
   private var rows = emptyList<JSONObject>()
   private var selectedKey: String? = null
   private var lastHeartbeat = 0L
+  private var lastConnectedAt = 0L
   private var foreground = false
   private var wakeLock: PowerManager.WakeLock? = null
   private val watchdog = object : Runnable {
     override fun run() {
+      if (rows.isNotEmpty() && rows.all { it.optString("phase") == "offline" } &&
+        SystemClock.elapsedRealtime() - lastConnectedAt >= NowBarPolicy.STOP_AFTER_MS) {
+        stopSelf()
+        return
+      }
       // React Native suspends JS timers when its Activity backgrounds. A
       // native event keeps the live snapshot lease renewed without relying
       // on setInterval, while a dead JS runtime still expires below.
@@ -54,6 +60,7 @@ class NowBarService : Service() {
     })
     manager.createNotificationChannel(NotificationChannel(RESULTS, "Agent results", NotificationManager.IMPORTANCE_DEFAULT))
     lastHeartbeat = SystemClock.elapsedRealtime()
+    lastConnectedAt = lastHeartbeat
     handler.postDelayed(watchdog, 15_000)
   }
 
@@ -70,6 +77,7 @@ class NowBarService : Service() {
       prefs(this).edit().putStringSet("suppressed", suppressed).apply()
       val previousAttention = rows.filter { it.optString("phase") == "attention" }.map { it.getString("key") }.toSet()
       rows = all.filterNot { it.getString("key") in suppressed }
+      if (rows.any { it.optString("phase") != "offline" }) lastConnectedAt = SystemClock.elapsedRealtime()
       rows.firstOrNull { it.optString("phase") == "attention" && it.getString("key") !in previousAttention }
         ?.let { selectedKey = it.getString("key") }
       lastHeartbeat = SystemClock.elapsedRealtime()
