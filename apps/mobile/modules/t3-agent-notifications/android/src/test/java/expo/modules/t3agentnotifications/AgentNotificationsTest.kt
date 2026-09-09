@@ -25,12 +25,71 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import expo.modules.t3nowbar.NowBarService
 import expo.modules.t3nowbar.NowBarActionReceiver
+import expo.modules.t3nowbar.NowBarDebug
+import android.widget.RemoteViews
+import android.widget.FrameLayout
+import android.widget.TextView
+import android.view.View
+import org.robolectric.util.ReflectionHelpers
 import org.json.JSONArray
 import org.json.JSONObject
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [24, 26, 33, 36], manifest = Config.NONE)
 class AgentNotificationsTest {
+  @Test
+  @Config(sdk = [33])
+  fun samsungPushCarriesInflatableComponentsWithoutReplacingAndroidContentView() {
+    ReflectionHelpers.setStaticField(Build::class.java, "MANUFACTURER", "samsung")
+    NowBarService.prefs(context).edit().clear().putBoolean("push", true).putBoolean("custom", true).apply()
+    val row = JSONObject().put("key", "[\"environment\",\"thread\",\"turn\"]").put("phase", "working")
+      .put("title", "Component test").put("status", "Building").put("completed", 3).put("total", 8)
+      .put("url", "t3code-nowbar://threads/environment/thread")
+    AgentNotifications.receive(context, update("components", true) + ("nowbar_rows" to JSONArray().put(row).toString()))
+    val card = manager.activeNotifications.single { it.id == NowBarService.LIVE_ID }.notification
+    val views = card.extras.getParcelable<RemoteViews>("android.ongoingActivityNoti.chronometerRemoteView")!!
+    val layout = views.apply(context, FrameLayout(context))
+    assertEquals("Component test", layout.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_task).text.toString())
+    assertEquals("3/8", layout.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_metric).text.toString())
+    assertEquals(View.VISIBLE, layout.findViewById<View>(expo.modules.t3nowbar.R.id.nowbar_segments).visibility)
+    assertEquals(1, card.extras.getInt("android.ongoingActivityNoti.nowbarChronometerPosition"))
+    assertTrue(card.contentView == null)
+    assertTrue(NotificationCompat.isRequestPromotedOngoing(card))
+  }
+
+  @Test
+  @Config(sdk = [33])
+  fun labCanSwitchLayoutsAndClearWithoutChangingLiveCardsOrPreferences() {
+    AgentNotifications.receive(context, update("live", true))
+    val realIds = manager.activeNotifications.map { it.id }.toSet()
+    val before = NowBarService.prefs(context).all.toMap()
+    val row = JSONObject().put("phase", "attention").put("kind", "input").put("title", "Question")
+      .put("status", "Sample question")
+    val json = JSONArray().put(row).toString()
+    NowBarDebug.show(context, json, true)
+    assertEquals(true, NowBarDebug.status(context)["customAttached"])
+    assertEquals(before, NowBarService.prefs(context).all)
+    NowBarDebug.show(context, json, false)
+    assertEquals(false, NowBarDebug.status(context)["customAttached"])
+    NowBarDebug.clear(context)
+    assertEquals(realIds, manager.activeNotifications.map { it.id }.toSet())
+    assertEquals(before, NowBarService.prefs(context).all)
+  }
+
+  @Test
+  @Config(sdk = [33])
+  fun privateCustomComponentsHideTaskNameAndPlanCounts() {
+    NowBarService.prefs(context).edit().putBoolean("private", true).apply()
+    val row = JSONObject().put("phase", "working").put("title", "Secret project")
+      .put("status", "Secret step").put("completed", 3).put("total", 8)
+    NowBarDebug.show(context, JSONArray().put(row).toString(), true)
+    val card = manager.activeNotifications.single { it.id == NowBarDebug.ID }.notification
+    val views = card.extras.getParcelable<RemoteViews>("android.ongoingActivityNoti.chronometerRemoteView")!!
+    val layout = views.apply(context, FrameLayout(context))
+    assertEquals("T3 · Private test", layout.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_task).text.toString())
+    assertEquals("", layout.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_metric).text.toString())
+    assertEquals(View.GONE, layout.findViewById<View>(expo.modules.t3nowbar.R.id.nowbar_segments).visibility)
+  }
   @Test
   @Config(sdk = [33])
   fun customPushRetainsUnreadResultsAndHonorsDismissalAndReadReceipts() {

@@ -1,6 +1,10 @@
 An unofficial T3 Code Android fork with Samsung Now Bar and Android Live Updates.
 
-This update adds a custom terminal emblem with phase colors and a real progress ring, compact elapsed-time and step summaries, and persistent unread results. Completed work changes to **Ready to review**; errors change to **Needs a look**. Open the completed thread or choose **Dismiss result** to clear it. Read receipts are device-local and tracking starts with this update, so old historical threads are not all treated as unread. Completed-only monitoring releases its wake lock and stops the running timer.
+This update fixes the missing Samsung custom layout. Both live monitoring and native push now attach real RemoteViews to Samsung's ongoing-activity component slot: a phase emblem, state badge, plan count, segmented progress and review hint. Android's standard notification content remains available for promotion. The state colors are preserved. Samsung beta rendering still needs a device check.
+
+Open **Settings ? Samsung Now Bar ? Now Bar Lab** to test working, plan progress, approvals, questions, proposed plans, background work, watching, disconnection, unread completion, errors and stopped runs. Compare Samsung custom and standard layouts, adjust plan steps, or load every state and use Next state on the notification. Tests have their own notification ID, never touch real threads, and expire after ten minutes. **Clear test notification** removes them immediately.
+
+Completed real work stays as **Ready to review** until opened or dismissed. Read receipts are device-local.
 
 Google sign-in and live Now Bar monitoring have been confirmed working by the user on the S26 Ultra. Samsung controls the outer card and may ignore individual visual hints; the new appearance still needs device verification. This build includes Firebase for the private misc sender. In Settings, enable Device Notifications and share the generated setup file with the sender administrator to enroll this phone. Ongoing Agent Activity uses the same custom Now Bar states when updates arrive remotely. Delivery still needs verification on the enrolled phone; Android force-stop blocks push until the app is reopened.
 

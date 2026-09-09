@@ -96,7 +96,7 @@ jobs:
         if: steps.source.outputs.build == 'true'
         run: |
           node --test apps/mobile/plugins/withNowBarFork.test.cjs
-          vp test run apps/mobile/src/features/nowbar/model.test.ts apps/mobile/src/features/nowbar/update-manifest.test.ts
+          vp test run apps/mobile/src/features/nowbar/model.test.ts apps/mobile/src/features/nowbar/update-manifest.test.ts apps/mobile/src/features/nowbar/debug.test.ts
           vp run --filter @t3tools/mobile typecheck
 
       - name: Configure Firebase for this fork

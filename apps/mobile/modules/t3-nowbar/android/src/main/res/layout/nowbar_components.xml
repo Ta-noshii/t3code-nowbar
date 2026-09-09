@@ -1,0 +1,23 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:id="@+id/nowbar_component_root" android:layout_width="match_parent" android:layout_height="wrap_content"
+  android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="3dp" android:paddingBottom="3dp">
+  <ImageView android:id="@+id/nowbar_emblem" android:layout_width="42dp" android:layout_height="42dp" android:layout_marginEnd="9dp" android:contentDescription="Agent state" />
+  <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+      <TextView android:id="@+id/nowbar_badge" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:textSize="10sp" android:textStyle="bold" android:letterSpacing="0.06" android:maxLines="1" android:ellipsize="end" />
+      <TextView android:id="@+id/nowbar_metric" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:textStyle="bold" android:textColor="#F4EFFF" android:layout_marginStart="6dp" />
+    </LinearLayout>
+    <TextView android:id="@+id/nowbar_task" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="14sp" android:textStyle="bold" android:textColor="#F4EFFF" android:maxLines="1" android:ellipsize="end" android:layout_marginTop="2dp" />
+    <LinearLayout android:id="@+id/nowbar_segments" android:layout_width="match_parent" android:layout_height="5dp" android:layout_marginTop="6dp" android:orientation="horizontal" android:contentDescription="Plan progress">
+      <ImageView android:id="@+id/nowbar_step_1" android:layout_width="0dp" android:layout_weight="1" android:layout_height="5dp" android:layout_marginEnd="3dp" android:src="@drawable/nowbar_segment" android:scaleType="fitXY" />
+      <ImageView android:id="@+id/nowbar_step_2" android:layout_width="0dp" android:layout_weight="1" android:layout_height="5dp" android:layout_marginEnd="3dp" android:src="@drawable/nowbar_segment" android:scaleType="fitXY" />
+      <ImageView android:id="@+id/nowbar_step_3" android:layout_width="0dp" android:layout_weight="1" android:layout_height="5dp" android:layout_marginEnd="3dp" android:src="@drawable/nowbar_segment" android:scaleType="fitXY" />
+      <ImageView android:id="@+id/nowbar_step_4" android:layout_width="0dp" android:layout_weight="1" android:layout_height="5dp" android:layout_marginEnd="3dp" android:src="@drawable/nowbar_segment" android:scaleType="fitXY" />
+      <ImageView android:id="@+id/nowbar_step_5" android:layout_width="0dp" android:layout_weight="1" android:layout_height="5dp" android:layout_marginEnd="3dp" android:src="@drawable/nowbar_segment" android:scaleType="fitXY" />
+      <ImageView android:id="@+id/nowbar_step_6" android:layout_width="0dp" android:layout_weight="1" android:layout_height="5dp" android:layout_marginEnd="3dp" android:src="@drawable/nowbar_segment" android:scaleType="fitXY" />
+      <ImageView android:id="@+id/nowbar_step_7" android:layout_width="0dp" android:layout_weight="1" android:layout_height="5dp" android:layout_marginEnd="3dp" android:src="@drawable/nowbar_segment" android:scaleType="fitXY" />
+      <ImageView android:id="@+id/nowbar_step_8" android:layout_width="0dp" android:layout_weight="1" android:layout_height="5dp" android:src="@drawable/nowbar_segment" android:scaleType="fitXY" />
+    </LinearLayout>
+    <TextView android:id="@+id/nowbar_hint" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="10sp" android:textColor="#C8BFD8" android:maxLines="1" android:ellipsize="end" android:layout_marginTop="3dp" />
+  </LinearLayout>
+</LinearLayout>

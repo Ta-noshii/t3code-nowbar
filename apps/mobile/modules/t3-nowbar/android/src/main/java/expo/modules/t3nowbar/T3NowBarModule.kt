@@ -33,6 +33,9 @@ class T3NowBarModule : Module() {
     Events("heartbeat")
     OnCreate { heartbeat = { sendEvent("heartbeat", emptyMap<String, Any>()) } }
     OnDestroy { heartbeat = null }
+    Function("debugShow") { json: String, custom: Boolean -> NowBarDebug.show(context, json, custom) }
+    Function("debugClear") { NowBarDebug.clear(context) }
+    Function("debugStatus") { NowBarDebug.status(context) }
     Function("clearRemotePush") {
       if (NowBarService.instance == null) context.getSystemService(NotificationManager::class.java).cancel(NowBarService.LIVE_ID)
       NowBarService.prefs(context).edit().remove("remoteRowKey").remove("remoteRowPhase").remove("remoteRowKind").remove("lastPushAt").apply()
@@ -59,12 +62,13 @@ class T3NowBarModule : Module() {
       val prefs = NowBarService.prefs(context)
       mapOf("enabled" to prefs.getBoolean("enabled", false), "private" to prefs.getBoolean("private", false),
         "results" to prefs.getBoolean("results", true), "updates" to prefs.getBoolean("updates", true),
-        "push" to prefs.getBoolean("push", false), "pushLive" to prefs.getBoolean("pushLive", true))
+        "push" to prefs.getBoolean("push", false), "pushLive" to prefs.getBoolean("pushLive", true),
+        "custom" to prefs.getBoolean("custom", true))
     }
     Function("setPreferences") { json: String ->
       val values = JSONObject(json)
       val edit = NowBarService.prefs(context).edit()
-      listOf("enabled", "private", "results", "updates", "push", "pushLive").forEach { key ->
+      listOf("enabled", "private", "results", "updates", "push", "pushLive", "custom").forEach { key ->
         if (values.has(key)) edit.putBoolean(key, values.getBoolean(key))
       }
       if (values.optBoolean("enabled", false)) edit.remove("suppressed")

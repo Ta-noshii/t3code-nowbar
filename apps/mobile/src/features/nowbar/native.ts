@@ -9,9 +9,13 @@ export interface NowBarPreferences {
   readonly updates: boolean;
   readonly push: boolean;
   readonly pushLive: boolean;
+  readonly custom: boolean;
 }
 
 interface NowBarNativeModule {
+  debugShow(rows: string, custom: boolean): void;
+  debugClear(): void;
+  debugStatus(): { active: boolean; customAttached: boolean; promoted: boolean };
   clearRemotePush(): void;
   readState(): { since: number; readTurns: string };
   markRead(identity: string, turn: string): void;
@@ -44,6 +48,7 @@ let preferences = nowBarNative?.preferences() ?? {
   updates: true,
   push: false,
   pushLive: true,
+  custom: true,
 };
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => {

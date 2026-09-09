@@ -198,8 +198,7 @@ class NowBarService : Service() {
     } else {
       builder.setStyle(NotificationCompat.BigTextStyle().bigText("$summary\n$detail"))
     }
-    // Keep a standard Android style: custom RemoteViews/colorized/group summaries
-    // disqualify Android Live Updates. Samsung consumes these additional extras.
+    // Keep Android's contentView standard. Samsung renders its own RemoteViews slot.
     if (Build.MANUFACTURER.equals("samsung", ignoreCase = true)) {
       val icon = Icon.createWithResource(this, R.drawable.nowbar_pulse)
       val emblem = Icon.createWithBitmap(artwork)
@@ -230,6 +229,8 @@ class NowBarService : Service() {
         }
       })
     }
+    NowBarComponents.attach(builder, this, title, displayPhase, color, completed, total, rows.size, open,
+      Build.MANUFACTURER.equals("samsung", true) && prefs(this).getBoolean("custom", true))
     val publicVersion = NotificationCompat.Builder(this, CHANNEL)
       .setSmallIcon(R.drawable.nowbar_pulse).setContentTitle("T3 Code Now Bar")
       .setContentText(if (ready) "Unread agent result" else if (phase == "attention") "Your agent needs you" else "Agent work in progress")
@@ -346,6 +347,8 @@ class NowBarService : Service() {
         putString(prefix + "chipExpandedText", NowBarPolicy.chip(display, rows.size, completed, total))
         putParcelable(prefix + "nowbarPendingIntentOnSubScreen", open)
       })
+      NowBarComponents.attach(builder, context, title, display, color, completed, total, rows.size, open,
+        Build.MANUFACTURER.equals("samsung", true) && prefs.getBoolean("custom", true))
       manager.notify(LIVE_ID, builder.build())
     }
 
@@ -378,6 +381,8 @@ class NowBarService : Service() {
 
 class NowBarActionReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
+    if (intent.action == "debug-clear") { NowBarDebug.clear(context); return }
+    if (intent.action == "debug-next") { NowBarDebug.next(context); return }
     if (intent.action == "remote-dismiss") {
       val key = intent.getStringExtra("key") ?: return
       val prefs = NowBarService.prefs(context)

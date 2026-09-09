@@ -7,11 +7,13 @@ import { SettingsSection } from "../settings/components/SettingsSection";
 import { SettingsSwitchRow } from "../settings/components/SettingsSwitchRow";
 import { nowBarNative, saveNowBarPreferences, useNowBarPreferences } from "./native";
 import { checkNowBarUpdate } from "./updates";
+import { NowBarLab } from "./NowBarLab";
 
 export function NowBarSettings() {
   const preferences = useNowBarPreferences();
   const [capabilities, setCapabilities] = useState(() => nowBarNative?.capabilities());
   const [busy, setBusy] = useState(false);
+  const [lab, setLab] = useState(false);
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") setCapabilities(nowBarNative?.capabilities());
@@ -49,6 +51,7 @@ export function NowBarSettings() {
   };
   return (
     <View className="gap-3">
+      {lab && <NowBarLab onClose={() => setLab(false)} />}
       <View
         style={{
           backgroundColor: "#171423",
@@ -95,6 +98,19 @@ export function NowBarSettings() {
         </Text>
       </View>
       <SettingsSection title="Samsung Now Bar">
+        <SettingsSwitchRow
+          icon="bolt.circle"
+          label="Samsung custom components"
+          subtitle="Native state emblem, status badge and segmented progress"
+          value={preferences.custom}
+          onValueChange={(custom) => saveNowBarPreferences({ custom })}
+        />
+        <SettingsRow
+          icon="gearshape"
+          label="Now Bar Lab"
+          value="Test every state"
+          onPress={() => setLab(true)}
+        />
         <SettingsSwitchRow
           icon="bolt.circle"
           label="Live agent work"
