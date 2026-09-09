@@ -53,7 +53,7 @@ class AgentNotificationsTest {
     AgentNotifications.receive(context, update("components", true) + ("nowbar_rows" to JSONArray().put(row).toString()))
     val card = manager.activeNotifications.single { it.id == NowBarService.LIVE_ID }.notification
     val views = card.extras.getParcelable<RemoteViews>("android.ongoingActivityNoti.chronometerRemoteView")!!
-    val layout = views.apply(context, FrameLayout(context))
+    val layout = applyAtSize(views, 160f, 48f)
     assertEquals("Component test", layout.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_task).text.toString())
     assertEquals("3/8", layout.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_metric).text.toString())
     assertEquals(View.VISIBLE, layout.findViewById<View>(expo.modules.t3nowbar.R.id.nowbar_segments).visibility)
@@ -90,7 +90,7 @@ class AgentNotificationsTest {
     NowBarDebug.show(context, JSONArray().put(row).toString(), true)
     val card = manager.activeNotifications.single { it.id == NowBarDebug.ID }.notification
     val views = card.extras.getParcelable<RemoteViews>("android.ongoingActivityNoti.chronometerRemoteView")!!
-    val layout = views.apply(context, FrameLayout(context))
+    val layout = applyAtSize(views, 160f, 48f)
     assertEquals("T3 · Private test", layout.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_task).text.toString())
     assertEquals("", layout.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_metric).text.toString())
     assertEquals(View.GONE, layout.findViewById<View>(expo.modules.t3nowbar.R.id.nowbar_segments).visibility)
@@ -342,6 +342,44 @@ class AgentNotificationsTest {
     assertFalse(card.extras.containsKey("android.ongoingActivityNoti.nowbarPendingIntentOnSubScreen"))
     NowBarDebug.next(context)
     assertNudge(manager.activeNotifications.single { it.id == NowBarDebug.ID }.notification, false)
+  }
+
+  private fun applyAtSize(views: RemoteViews, width: Float, height: Float): View {
+    // Exercise the size selection SystemUI hosts use, which is hidden from the app SDK.
+    val selected = ReflectionHelpers.callInstanceMethod<RemoteViews>(views, "getRemoteViewsToApply",
+      ReflectionHelpers.ClassParameter.from(android.content.Context::class.java, context),
+      ReflectionHelpers.ClassParameter.from(android.util.SizeF::class.java, android.util.SizeF(width, height)))
+    return selected.apply(context, FrameLayout(context))
+  }
+
+  @Test
+  @Config(sdk = [33, 36], qualifiers = "mdpi")
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  fun notificationFallbackFitsOneLineWhileLargerHostsKeepDetails() {
+    for ((phase, count, total) in listOf(Triple("working", 11, 0), Triple("completed", 2, 0),
+      Triple("working", 1, 8))) {
+      val row = nowBarRow(phase).put("title", "Restore Super Shift Notifications")
+        .put("completed", 3).put("total", total).put("model", "claude-sonnet")
+      NowBarDebug.show(context, JSONArray(List(count) { row }).toString(), true)
+      val card = manager.activeNotifications.single { it.id == NowBarDebug.ID }.notification
+      val views = card.extras.getParcelable<RemoteViews>("android.ongoingActivityNoti.chronometerRemoteView")!!
+      val fallback = views.apply(context, FrameLayout(context))
+      fallback.measure(View.MeasureSpec.makeMeasureSpec(280, View.MeasureSpec.EXACTLY),
+        View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+      fallback.layout(0, 0, fallback.measuredWidth, fallback.measuredHeight)
+      assertTrue("$phase fallback height ${fallback.measuredHeight} must fit the title slot", fallback.measuredHeight <= 24)
+      val title = fallback.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_task)
+      assertEquals("TEST · Restore Super Shift Notifications", title.text.toString())
+      val bounds = android.graphics.Rect(0, 0, title.width, title.height)
+      (fallback as android.view.ViewGroup).offsetDescendantRectToMyCoords(title, bounds)
+      assertTrue("Title bounds $bounds must fit the slot", bounds.top >= 0 && bounds.bottom <= 24)
+      val compact = applyAtSize(views, 160f, 48f)
+      assertEquals(if (total > 0) "3/8" else "$count agents",
+        compact.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_metric).text.toString())
+      val expanded = applyAtSize(views, 280f, 110f)
+      assertEquals(View.VISIBLE, expanded.findViewById<View>(expo.modules.t3nowbar.R.id.nowbar_model).visibility)
+      assertEquals("claude-sonnet", expanded.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_model).text.toString())
+    }
   }
 
   private lateinit var context: Application
