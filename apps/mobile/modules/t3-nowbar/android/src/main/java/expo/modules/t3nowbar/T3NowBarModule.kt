@@ -4,6 +4,8 @@ import android.app.NotificationManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -21,6 +23,7 @@ class T3NowBarModule : Module() {
   private val context get() = requireNotNull(appContext.reactContext)
 
   companion object {
+    @Volatile
     var heartbeat: (() -> Unit)? = null
       private set
   }
@@ -41,11 +44,12 @@ class T3NowBarModule : Module() {
       listOf("enabled", "private", "results", "updates").forEach { key ->
         if (values.has(key)) edit.putBoolean(key, values.getBoolean(key))
       }
+      if (values.optBoolean("enabled", false)) edit.remove("suppressed")
       edit.apply()
       if (values.has("enabled") && !values.getBoolean("enabled")) {
         context.stopService(Intent(context, NowBarService::class.java))
       } else {
-        NowBarService.instance?.action("refresh")
+        Handler(Looper.getMainLooper()).post { NowBarService.instance?.action("refresh") }
       }
     }
     Function("capabilities") {
@@ -59,7 +63,7 @@ class T3NowBarModule : Module() {
       )
     }
     Function("openSettings") {
-      val action = if (Build.VERSION.SDK_INT >= 36) "android.settings.MANAGE_APP_PROMOTED_NOTIFICATIONS" else Settings.ACTION_APP_NOTIFICATION_SETTINGS
+      val action = if (Build.VERSION.SDK_INT >= 36) "android.settings.APP_NOTIFICATION_PROMOTION_SETTINGS" else Settings.ACTION_APP_NOTIFICATION_SETTINGS
       val intent = Intent(action).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       try { context.startActivity(intent) } catch (_: Exception) {
         context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)

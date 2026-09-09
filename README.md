@@ -1,5 +1,10 @@
 # T3 Code
 
+> **T3 Code Now Bar — unofficial Samsung Android fork.**
+> [Download the latest signed APK](https://github.com/Ta-noshii/t3code-nowbar/releases/latest) · [Setup and features](docs/operations/nowbar-release-notes.md) · [Automatic upstream updates](docs/operations/nowbar-fork.md)
+>
+> Live agent status, real plan progress, attention states, multiple threads, and privacy controls on Samsung Now Bar and Android Live Updates. Installs alongside the official app. The `nowbar` branch builds signed releases and checks upstream daily. Samsung One UI beta placement still needs device verification.
+
 T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
 
 Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, and Google Antigravity. If they're set up on your computer, T3 Code can control them.

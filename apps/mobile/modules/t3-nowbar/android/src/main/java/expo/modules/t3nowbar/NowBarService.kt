@@ -34,7 +34,7 @@ class NowBarService : Service() {
       // React Native suspends JS timers when its Activity backgrounds. A
       // native event keeps the live snapshot lease renewed without relying
       // on setInterval, while a dead JS runtime still expires below.
-      T3NowBarModule.heartbeat?.invoke()
+      runCatching { T3NowBarModule.heartbeat?.invoke() }
       when (NowBarPolicy.freshness(SystemClock.elapsedRealtime() - lastHeartbeat)) {
         "expired" -> stopSelf()
         "stale" -> render(stale = true)
@@ -68,7 +68,10 @@ class NowBarService : Service() {
       val activeKeys = all.map { it.getString("key") }.toSet()
       val suppressed = prefs(this).getStringSet("suppressed", emptySet()).orEmpty().intersect(activeKeys)
       prefs(this).edit().putStringSet("suppressed", suppressed).apply()
+      val previousAttention = rows.filter { it.optString("phase") == "attention" }.map { it.getString("key") }.toSet()
       rows = all.filterNot { it.getString("key") in suppressed }
+      rows.firstOrNull { it.optString("phase") == "attention" && it.getString("key") !in previousAttention }
+        ?.let { selectedKey = it.getString("key") }
       lastHeartbeat = SystemClock.elapsedRealtime()
       if (rows.isEmpty()) {
         stopSelf()
@@ -102,6 +105,10 @@ class NowBarService : Service() {
 
   private fun render(stale: Boolean = false) {
     if (rows.isEmpty()) return
+    if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) {
+      stopSelf()
+      return
+    }
     val row = rows.firstOrNull { it.optString("key") == selectedKey } ?: rows.first()
     selectedKey = row.getString("key")
     val phase = if (stale) "offline" else row.getString("phase")
@@ -210,7 +217,7 @@ class NowBarService : Service() {
     const val CHANNEL = "nowbar-live-v1"
     const val RESULTS = "nowbar-results-v1"
     const val LIVE_ID = 76326
-    var instance: NowBarService? = null
+    @Volatile var instance: NowBarService? = null
       private set
 
     fun prefs(context: Context) = context.getSharedPreferences("t3-nowbar", Context.MODE_PRIVATE)

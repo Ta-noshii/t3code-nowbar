@@ -82,6 +82,9 @@ jobs:
               - --filter=@t3tools/mobile...
               - --frozen-lockfile
 
+      - uses: gradle/actions/setup-gradle@v4
+        if: steps.source.outputs.build == 'true'
+
       - name: Test notification behavior and mobile types
         if: steps.source.outputs.build == 'true'
         run: |
