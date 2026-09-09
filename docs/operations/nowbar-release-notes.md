@@ -1,8 +1,8 @@
 An unofficial T3 Code Android fork with Samsung Now Bar and Android Live Updates.
 
-This update restores the public configuration needed to display T3 Account and T3 Connect, includes upstream's latest Android notification source, and derives its version from the upstream mobile version. The earlier `1.0.5` release incorrectly omitted cloud configuration.
+This update adds a custom terminal emblem with phase colors and a real progress ring, compact elapsed-time and step summaries, and persistent unread results. Completed work changes to **Ready to review**; errors change to **Needs a look**. Open the completed thread or choose **Dismiss result** to clear it. Read receipts are device-local and tracking starts with this update, so old historical threads are not all treated as unread. Completed-only monitoring releases its wake lock and stops the running timer.
 
-**Google sign-in is not verified:** the fork has a separate Android package/signing certificate, which requires registration with T3's identity provider. Restoring the account screen alone does not resolve that requirement. Remote push also remains unavailable without Firebase registration for the fork; the Now Bar feature below uses active app connections.
+Google sign-in and live Now Bar monitoring have been confirmed working by the user on the S26 Ultra. Samsung controls the outer card and may ignore individual visual hints; the new appearance still needs device verification. Remote push remains unavailable until matching Firebase configuration and a sender are connected; the Now Bar feature below uses app connections.
 
 - Live task title, plan steps, elapsed time, and attention states across connected environments.
 - One promoted card with Open/Review, Next agent, and Unpin actions.

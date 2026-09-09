@@ -33,6 +33,17 @@ class T3NowBarModule : Module() {
     Events("heartbeat")
     OnCreate { heartbeat = { sendEvent("heartbeat", emptyMap<String, Any>()) } }
     OnDestroy { heartbeat = null }
+    Function("readState") {
+      val prefs = NowBarService.prefs(context)
+      if (!prefs.contains("unreadSince")) prefs.edit().putLong("unreadSince", System.currentTimeMillis()).apply()
+      mapOf("since" to prefs.getLong("unreadSince", 0), "readTurns" to prefs.getString("readTurns", "{}"))
+    }
+    Function("markRead") { identity: String, turn: String ->
+      val prefs = NowBarService.prefs(context)
+      val reads = JSONObject(prefs.getString("readTurns", "{}") ?: "{}")
+      reads.put(identity, turn)
+      prefs.edit().putString("readTurns", reads.toString()).apply()
+    }
     Function("preferences") {
       val prefs = NowBarService.prefs(context)
       mapOf("enabled" to prefs.getBoolean("enabled", false), "private" to prefs.getBoolean("private", false),

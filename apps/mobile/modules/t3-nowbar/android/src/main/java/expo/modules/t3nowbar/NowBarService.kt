@@ -41,8 +41,15 @@ class NowBarService : Service() {
       // native event keeps the live snapshot lease renewed without relying
       // on setInterval, while a dead JS runtime still expires below.
       runCatching { T3NowBarModule.heartbeat?.invoke() }
-      when (NowBarPolicy.freshness(SystemClock.elapsedRealtime() - lastHeartbeat)) {
-        "expired" -> stopSelf()
+      if (rows.any { !isReady(it) }) when (NowBarPolicy.freshness(SystemClock.elapsedRealtime() - lastHeartbeat)) {
+        "expired" -> {
+          rows = rows.filter { isReady(it) }
+          if (rows.isEmpty()) stopSelf() else {
+            if (wakeLock?.isHeld == true) wakeLock?.release()
+            wakeLock = null
+            render()
+          }
+        }
         "stale" -> render(stale = true)
       }
       handler.postDelayed(this, 15_000)
@@ -75,17 +82,20 @@ class NowBarService : Service() {
       val activeKeys = all.map { it.getString("key") }.toSet()
       val suppressed = prefs(this).getStringSet("suppressed", emptySet()).orEmpty().intersect(activeKeys)
       prefs(this).edit().putStringSet("suppressed", suppressed).apply()
-      val previousAttention = rows.filter { it.optString("phase") == "attention" }.map { it.getString("key") }.toSet()
+      val previousAttention = rows.filter { it.optString("phase") == "attention" || isReady(it) }.map { attentionIdentity(it) }.toSet()
       rows = all.filterNot { it.getString("key") in suppressed }
       if (rows.any { it.optString("phase") != "offline" }) lastConnectedAt = SystemClock.elapsedRealtime()
-      rows.firstOrNull { it.optString("phase") == "attention" && it.getString("key") !in previousAttention }
+      rows.firstOrNull { (it.optString("phase") == "attention" || isReady(it)) && attentionIdentity(it) !in previousAttention }
         ?.let { selectedKey = it.getString("key") }
       lastHeartbeat = SystemClock.elapsedRealtime()
       if (rows.isEmpty()) {
         stopSelf()
       } else {
         render()
-        if (wakeLock?.isHeld != true) {
+        if (rows.all { isReady(it) }) {
+          if (wakeLock?.isHeld == true) wakeLock?.release()
+          wakeLock = null
+        } else if (wakeLock?.isHeld != true) {
           wakeLock = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:nowbar")
             .apply { acquire(2 * 60 * 60 * 1000L) }
@@ -99,7 +109,13 @@ class NowBarService : Service() {
   }
 
   fun action(action: String) {
-    if (action == "unpin") {
+    if (action == "dismiss") {
+      val key = selectedKey ?: return
+      val suppressed = prefs(this).getStringSet("suppressed", emptySet()).orEmpty() + key
+      prefs(this).edit().putStringSet("suppressed", suppressed).apply()
+      rows = rows.filterNot { it.optString("key") == key }
+      if (rows.isEmpty()) stopSelf() else render()
+    } else if (action == "unpin") {
       prefs(this).edit().putStringSet("suppressed", rows.map { it.getString("key") }.toSet()).apply()
       stopSelf()
     } else if (action == "refresh") {
@@ -119,31 +135,43 @@ class NowBarService : Service() {
     }
     val row = rows.firstOrNull { it.optString("key") == selectedKey } ?: rows.first()
     selectedKey = row.getString("key")
-    val phase = if (stale) "offline" else row.getString("phase")
+    val ready = isReady(row)
+    val phase = if (stale && !ready) "offline" else row.getString("phase")
+    val displayPhase = if (phase == "attention" || phase == "working") row.optString("kind").ifEmpty { phase } else phase
     val privateMode = prefs(this).getBoolean("private", false)
     val title = if (privateMode) "T3 Code · Agent work" else row.getString("title")
     val status = when {
-      stale || phase == "offline" -> "Connection paused · Open T3 to reconnect"
+      (stale && !ready) || phase == "offline" -> "Connection paused · Open T3 to reconnect"
+      privateMode && ready -> "Unread agent result · Open to review"
       privateMode -> if (phase == "attention") "Your agent needs you" else "Agent work in progress"
       else -> row.getString("status")
     }
     val project = if (privateMode) "Private session" else row.optString("project", "T3 Code")
-    val color = Color.parseColor(when (phase) {
+    val color = Color.parseColor(when (displayPhase) {
+      "approval", "input" -> "#F4B860"
+      "plan" -> "#67D9F5"
+      "stopped" -> "#B7A8C9"
+      "completed" -> "#40DDB5"
+      "error" -> "#FB7185"
       "attention" -> "#F4B860"
       "offline" -> "#94A3B8"
       "monitoring" -> "#40DDB5"
       else -> "#A78BFA"
     })
-    val total = if (phase == "offline" || privateMode) 0 else row.optInt("total")
+    val total = if (phase == "offline" || privateMode || ready) 0 else row.optInt("total")
     val completed = row.optInt("completed").coerceIn(0, total.coerceAtLeast(0))
-    val chip = NowBarPolicy.chip(phase, rows.size, completed, total)
+    val chip = NowBarPolicy.chip(displayPhase, rows.size, completed, total)
+    val artwork = NowBarArtwork.emblem(displayPhase, color, if (phase == "completed") 100 else NowBarPolicy.progress(completed, total))
+    val started = row.optLong("startedAt")
+    val summary = NowBarPolicy.summary(displayPhase, started, System.currentTimeMillis(), completed, total, rows.size)
     val open = openIntent(this, row.getString("url"))
-    val unpin = actionIntent("unpin")
+    val unpin = actionIntent(if (ready) "dismiss" else "unpin")
     val detail = if (rows.size > 1) "$status · ${rows.indexOf(row) + 1}/${rows.size} agents" else status
     val builder = NotificationCompat.Builder(this, CHANNEL)
       .setSmallIcon(R.drawable.nowbar_pulse)
+      .setLargeIcon(artwork)
       .setContentTitle(title)
-      .setContentText(detail)
+      .setContentText(summary)
       .setSubText(project)
       .setColor(color)
       .setOngoing(true)
@@ -156,11 +184,10 @@ class NowBarService : Service() {
       .setRequestPromotedOngoing(true)
       .setShortCriticalText(chip)
       .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-      .addAction(0, if (phase == "attention") "Review" else "Open thread", open)
+      .addAction(0, if (phase == "attention" || ready) "Review result" else "Open thread", open)
     if (rows.size > 1) builder.addAction(0, "Next agent", actionIntent("next"))
-    builder.addAction(0, "Unpin", unpin)
-    val started = row.optLong("startedAt")
-    if (started > 0 && phase != "offline" && phase != "attention") {
+    builder.addAction(0, if (ready) "Dismiss result" else "Unpin", unpin)
+    if (started > 0 && phase != "offline" && phase != "attention" && !ready) {
       builder.setWhen(started).setUsesChronometer(true).setShowWhen(true)
     } else builder.setShowWhen(false)
     if (total > 0) {
@@ -169,33 +196,43 @@ class NowBarService : Service() {
         .setProgressSegments(List(total.coerceAtMost(100)) { NotificationCompat.ProgressStyle.Segment(1).setColor(color) })
         .setStyledByProgress(true))
     } else {
-      builder.setStyle(NotificationCompat.BigTextStyle().bigText(detail))
+      builder.setStyle(NotificationCompat.BigTextStyle().bigText("$summary\n$detail"))
     }
     // Keep a standard Android style: custom RemoteViews/colorized/group summaries
     // disqualify Android Live Updates. Samsung consumes these additional extras.
     if (Build.MANUFACTURER.equals("samsung", ignoreCase = true)) {
       val icon = Icon.createWithResource(this, R.drawable.nowbar_pulse)
+      val emblem = Icon.createWithBitmap(artwork)
       builder.addExtras(Bundle().apply {
         val prefix = "android.ongoingActivityNoti."
         putInt(prefix + "style", 1)
         putCharSequence(prefix + "primaryInfo", title)
-        putCharSequence(prefix + "secondaryInfo", detail)
+        putCharSequence(prefix + "secondaryInfo", summary)
         putCharSequence(prefix + "nowbarPrimaryInfo", title)
-        putCharSequence(prefix + "nowbarSecondaryInfo", detail)
+        putCharSequence(prefix + "nowbarSecondaryInfo", summary)
         putString(prefix + "chipExpandedText", chip)
         putInt(prefix + "chipBgColor", color)
         putParcelable(prefix + "chipIcon", icon)
-        putParcelable(prefix + "nowbarIcon", icon)
+        putParcelable(prefix + "nowbarIcon", emblem)
+        putParcelable(prefix + "firstIcon", emblem)
+        putInt(prefix + "actionBgColor", color)
         putParcelable(prefix + "nowbarPendingIntentOnSubScreen", open)
         if (total > 0) {
           putInt(prefix + "progress", NowBarPolicy.progress(completed, total) ?: 0)
           putInt(prefix + "progressMax", 100)
+          putInt(prefix + "progressSegments.progressColor", color)
+          putParcelableArray(prefix + "progressSegments", Array(total.coerceAtMost(20)) { index ->
+            Bundle().apply {
+              putInt(prefix + "progressSegments.segmentColor", color)
+              putFloat(prefix + "progressSegments.segmentStart", index.toFloat() / total.coerceAtMost(20))
+            }
+          })
         }
       })
     }
     val publicVersion = NotificationCompat.Builder(this, CHANNEL)
       .setSmallIcon(R.drawable.nowbar_pulse).setContentTitle("T3 Code Now Bar")
-      .setContentText(if (phase == "attention") "Your agent needs you" else "Agent work in progress")
+      .setContentText(if (ready) "Unread agent result" else if (phase == "attention") "Your agent needs you" else "Agent work in progress")
       .setOngoing(true).build()
     builder.setPublicVersion(publicVersion)
     val notification = builder.build()
@@ -222,6 +259,8 @@ class NowBarService : Service() {
   override fun onBind(intent: Intent?): IBinder? = null
 
   companion object {
+    private fun isReady(row: JSONObject) = row.optString("phase") in listOf("completed", "error", "stopped")
+    private fun attentionIdentity(row: JSONObject) = "${row.optString("key")}:${row.optString("phase")}:${row.optString("kind")}"
     const val CHANNEL = "nowbar-live-v1"
     const val RESULTS = "nowbar-results-v1"
     const val LIVE_ID = 76326

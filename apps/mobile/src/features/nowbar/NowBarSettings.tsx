@@ -91,14 +91,14 @@ export function NowBarSettings() {
           </Text>
         </View>
         <Text style={{ color: "#A99DB8", fontSize: 12 }}>
-          Purple · Working Amber · Needs you Mint · Watching
+          Violet · Working Amber · Needs you Mint · Ready to review
         </Text>
       </View>
       <SettingsSection title="Samsung Now Bar">
         <SettingsSwitchRow
           icon="bolt.circle"
           label="Live agent work"
-          subtitle="Monitor connected environments on your lock screen"
+          subtitle="Live work and unread results on your lock screen"
           value={preferences.enabled}
           disabled={busy}
           onValueChange={(value) => {
@@ -129,7 +129,9 @@ export function NowBarSettings() {
       <Text className="px-2 text-sm text-foreground-muted">
         Enable Live notifications for T3 Code Now Bar in Samsung settings. Start monitoring while
         the app is open; it stays connected while work is active. Use Unpin to stop monitoring
-        current tasks. Opening the app again reconnects after Android stops it.
+        current tasks. Completed results stay until you open the thread or dismiss the result.
+        Unread tracking starts with this update on this device. Opening the app again reconnects
+        after Android stops it.
       </Text>
       <SettingsSection title="Fork updates">
         <SettingsSwitchRow

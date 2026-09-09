@@ -5,12 +5,14 @@ import { useWorkspaceState } from "../../state/workspace";
 import { completedNowBarRows, projectNowBarRows, type NowBarRow } from "./model";
 import { nowBarNative, useNowBarPreferences } from "./native";
 import { checkNowBarUpdate } from "./updates";
+import { useNowBarUnread } from "./unread";
 
 export function NowBarCoordinator() {
   const threads = useThreadShells();
   const projects = useProjects();
   const { environments } = useWorkspaceState();
   const preferences = useNowBarPreferences();
+  const unread = useNowBarUnread();
   const previous = useRef<NowBarRow[]>([]);
   const connected = useMemo(
     () =>
@@ -20,8 +22,8 @@ export function NowBarCoordinator() {
     [environments],
   );
   const rows = useMemo(
-    () => projectNowBarRows(threads, projects, connected),
-    [threads, projects, connected],
+    () => projectNowBarRows(threads, projects, connected, unread),
+    [threads, projects, connected, unread],
   );
   const payload = JSON.stringify(rows);
 

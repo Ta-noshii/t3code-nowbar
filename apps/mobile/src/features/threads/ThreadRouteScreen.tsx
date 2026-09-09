@@ -1,4 +1,5 @@
 import { NativeStackScreenOptions } from "../../native/StackHeader";
+import { useReadNowBarThread } from "../nowbar/unread";
 import {
   StackActions,
   useFocusEffect,
@@ -214,6 +215,11 @@ function ThreadRouteContent(
   } = useThreadSelection();
   const selectedThreadDetailState = props.selectedThreadDetailState;
   const selectedThreadDetail = Option.getOrNull(selectedThreadDetailState.data);
+  useReadNowBarThread(
+    selectedThread,
+    selectedThreadDetail?.latestTurn?.turnId === selectedThread?.latestTurn?.turnId &&
+      selectedThreadDetail?.latestTurn?.completedAt != null,
+  );
   // "Load earlier turns" header state for windowed (paginated) thread loads.
   const loadEarlierTurns = useMemo(() => {
     if (selectedThread === null || !threadHasOlderTurns(selectedThreadDetailState)) {

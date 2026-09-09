@@ -7,7 +7,15 @@ export interface NowBarRow {
   readonly key: string;
   readonly title: string;
   readonly project: string;
-  readonly phase: "working" | "attention" | "monitoring" | "offline" | "completed" | "error";
+  readonly phase:
+    | "working"
+    | "attention"
+    | "monitoring"
+    | "offline"
+    | "completed"
+    | "error"
+    | "stopped";
+  readonly kind?: "approval" | "input" | "plan" | "background";
   readonly status: string;
   readonly startedAt: number;
   readonly completed: number;
@@ -38,37 +46,51 @@ export function projectNowBarRows(
   threads: ReadonlyArray<EnvironmentThreadShell>,
   projects: ReadonlyArray<EnvironmentProject>,
   connected: ReadonlySet<string>,
+  unread?: { readonly since: number; readonly readTurns: Readonly<Record<string, string>> },
 ): NowBarRow[] {
   const projectsByKey = new Map(
     projects.map((p) => [JSON.stringify([p.environmentId, p.id]), p.title]),
   );
   return threads
-    .filter(isActiveThread)
+    .filter((thread) => isActiveThread(thread) || isUnreadCompletion(thread, unread))
     .map((thread): NowBarRow => {
       const online = connected.has(thread.environmentId);
+      const finished = !isActiveThread(thread) && isUnreadCompletion(thread, unread);
       const attention =
         thread.hasPendingApprovals ||
         thread.hasPendingUserInput ||
         thread.hasActionableProposedPlan;
-      const phase = !online
-        ? "offline"
-        : attention
-          ? "attention"
-          : thread.backgroundLiveness === "monitoring"
-            ? "monitoring"
-            : "working";
+      const phase = finished
+        ? thread.latestTurn?.state === "error"
+          ? "error"
+          : thread.latestTurn?.state === "interrupted"
+            ? "stopped"
+            : "completed"
+        : !online
+          ? "offline"
+          : attention
+            ? "attention"
+            : thread.backgroundLiveness === "monitoring"
+              ? "monitoring"
+              : "working";
       const progress = thread.planProgress;
       const total = Math.max(0, progress?.totalSteps ?? 0);
-      const status = !online
-        ? "Connection paused · Open T3 to reconnect"
-        : thread.hasPendingApprovals
-          ? "Approval needed · Review to continue"
-          : thread.hasPendingUserInput
-            ? "Your agent has a question"
-            : thread.hasActionableProposedPlan
-              ? "Plan ready for your review"
-              : (progress?.step ??
-                (phase === "monitoring" ? "Watching for changes" : "Agent is working"));
+      const status = finished
+        ? phase === "error"
+          ? "Agent hit an error · Open to inspect"
+          : phase === "stopped"
+            ? "Agent stopped · Open to review"
+            : "Ready to review · Unread result"
+        : !online
+          ? "Connection paused · Open T3 to reconnect"
+          : thread.hasPendingApprovals
+            ? "Approval needed · Review to continue"
+            : thread.hasPendingUserInput
+              ? "Your agent has a question"
+              : thread.hasActionableProposedPlan
+                ? "Plan ready for your review"
+                : (progress?.step ??
+                  (phase === "monitoring" ? "Watching for changes" : "Agent is working"));
       const startedAt = Date.parse(
         thread.latestTurn?.startedAt ?? thread.latestTurn?.requestedAt ?? thread.updatedAt,
       );
@@ -78,6 +100,15 @@ export function projectNowBarRows(
         project:
           projectsByKey.get(JSON.stringify([thread.environmentId, thread.projectId])) ?? "T3 Code",
         phase,
+        kind: thread.hasPendingApprovals
+          ? "approval"
+          : thread.hasPendingUserInput
+            ? "input"
+            : thread.hasActionableProposedPlan
+              ? "plan"
+              : thread.backgroundLiveness === "working"
+                ? "background"
+                : undefined,
         status: status.slice(0, 240),
         startedAt: Number.isFinite(startedAt) ? startedAt : 0,
         total,
@@ -88,11 +119,12 @@ export function projectNowBarRows(
     .sort((a, b) => {
       const priority = {
         attention: 0,
-        working: 1,
-        monitoring: 2,
-        offline: 3,
-        completed: 4,
-        error: 4,
+        working: 2,
+        monitoring: 3,
+        offline: 4,
+        completed: 1,
+        error: 1,
+        stopped: 1,
       };
       return (
         priority[a.phase] - priority[b.phase] ||
@@ -100,6 +132,30 @@ export function projectNowBarRows(
         a.key.localeCompare(b.key)
       );
     });
+}
+
+export function readIdentity(thread: EnvironmentThreadShell): string {
+  return JSON.stringify([thread.environmentId, thread.id]);
+}
+
+export function isUnreadCompletion(
+  thread: EnvironmentThreadShell,
+  unread?: { readonly since: number; readonly readTurns: Readonly<Record<string, string>> },
+): boolean {
+  const turn = thread.latestTurn;
+  if (
+    !unread ||
+    thread.archivedAt !== null ||
+    !turn ||
+    (turn.state !== "completed" && turn.state !== "error" && turn.state !== "interrupted")
+  )
+    return false;
+  const completedAt = Date.parse(turn.completedAt ?? "");
+  return (
+    Number.isFinite(completedAt) &&
+    completedAt >= unread.since &&
+    unread.readTurns[readIdentity(thread)] !== turn.turnId
+  );
 }
 
 /** Only settle work observed live on this device; cached historical work never alerts. */
@@ -110,6 +166,7 @@ export function completedNowBarRows(
 ): NowBarRow[] {
   const byKey = new Map(threads.map((thread) => [threadKey(thread), thread]));
   return previous.flatMap((row) => {
+    if (row.phase === "completed" || row.phase === "error" || row.phase === "stopped") return [];
     const thread = byKey.get(row.key);
     if (
       !thread ||
@@ -123,7 +180,12 @@ export function completedNowBarRows(
     return [
       {
         ...row,
-        phase: state === "error" ? ("error" as const) : ("completed" as const),
+        phase:
+          state === "error"
+            ? ("error" as const)
+            : state === "interrupted"
+              ? ("stopped" as const)
+              : ("completed" as const),
         status:
           state === "error"
             ? "Agent hit an error · Open to inspect"

@@ -4,6 +4,23 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NowBarPolicyTest {
+  @Test fun everyActionableStateHasASpecificLabelAndChip() {
+    assertEquals("ANSWER NEEDED", NowBarPolicy.label("input"))
+    assertEquals("Reply", NowBarPolicy.chip("input", 4, 2, 5))
+    assertEquals("APPROVAL NEEDED", NowBarPolicy.label("approval"))
+    assertEquals("PLAN READY", NowBarPolicy.label("plan"))
+    assertEquals("READY TO REVIEW · unread", NowBarPolicy.summary("completed", 1_000, 999_000, 5, 5, 1))
+    assertEquals("NEEDS A LOOK · unread", NowBarPolicy.summary("error", 1_000, 999_000, 2, 5, 1))
+    assertEquals("STOPPED · unread", NowBarPolicy.summary("stopped", 1_000, 999_000, 2, 5, 1))
+    assertEquals("ANSWER NEEDED · 2/5 steps", NowBarPolicy.summary("input", 1_000, 999_000, 2, 5, 1))
+  }
+  @Test fun compactSummaryUsesRealProgressAndNeverRunsAFutureTimer() {
+    assertEquals("WORKING · 2m · 3/5 steps · 2 agents", NowBarPolicy.summary("working", 1_000, 121_000, 3, 5, 2))
+    assertEquals("WORKING", NowBarPolicy.summary("working", 500, 100, 0, 0, 1))
+    assertEquals("RECONNECT · 2 agents", NowBarPolicy.summary("offline", 1_000, 121_000, 3, 5, 2))
+    assertEquals("1h 5m", NowBarPolicy.elapsed(1_000, 3_901_000))
+    assertEquals("NEEDS YOU · just started", NowBarPolicy.summary("attention", 1_000, 2_000, 0, 0, 1))
+  }
   @Test fun stalledConnectionsCannotKeepShowingLiveWork() {
     assertEquals("fresh", NowBarPolicy.freshness(74_999))
     assertEquals("stale", NowBarPolicy.freshness(75_000))

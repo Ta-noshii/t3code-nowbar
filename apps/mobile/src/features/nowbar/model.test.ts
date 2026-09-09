@@ -1,7 +1,7 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId, TurnId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import { completedNowBarRows, projectNowBarRows } from "./model";
+import { completedNowBarRows, projectNowBarRows, readIdentity } from "./model";
 
 const environmentId = EnvironmentId.make("laptop");
 const connected = new Set([environmentId]);
@@ -39,6 +39,65 @@ function thread(patch: Partial<EnvironmentThreadShell> = {}): EnvironmentThreadS
 }
 
 describe("Now Bar agent projection", () => {
+  it("distinguishes approval, question, plan review and background work", () => {
+    const cases = [
+      { hasPendingApprovals: true },
+      { hasPendingUserInput: true },
+      { hasActionableProposedPlan: true },
+      { backgroundLiveness: "working" as const },
+    ];
+    expect(
+      cases.map((patch) => projectNowBarRows([thread(patch)], [], connected)[0]?.kind),
+    ).toEqual(["approval", "input", "plan", "background"]);
+  });
+  it("retains new unread completions until the matching turn is read, including offline", () => {
+    const finished = thread({
+      latestTurn: {
+        ...thread().latestTurn!,
+        state: "completed",
+        completedAt: "2026-09-09T10:05:00Z",
+      },
+    });
+    const unread = { since: Date.parse("2026-09-09T10:00:00Z"), readTurns: {} };
+    const rows = projectNowBarRows([finished], [], connected, unread);
+    expect(rows[0]?.phase).toBe("completed");
+    expect(projectNowBarRows([finished], [], new Set(), unread)[0]?.phase).toBe("completed");
+    expect(
+      projectNowBarRows([finished], [], connected, {
+        ...unread,
+        readTurns: { [readIdentity(finished)]: finished.latestTurn!.turnId },
+      }),
+    ).toEqual([]);
+    expect(completedNowBarRows(rows, [finished], connected)).toEqual([]);
+    expect(
+      projectNowBarRows([finished], [], connected, {
+        ...unread,
+        since: Date.parse("2026-09-09T11:00:00Z"),
+      }),
+    ).toEqual([]);
+    expect(
+      projectNowBarRows(
+        [{ ...finished, archivedAt: "2026-09-09T11:00:00Z" }],
+        [],
+        connected,
+        unread,
+      ),
+    ).toEqual([]);
+  });
+  it("read receipts do not suppress a later turn or a matching ID in another environment", () => {
+    const finished = thread({
+      latestTurn: { ...thread().latestTurn!, state: "error", completedAt: "2026-09-09T10:05:00Z" },
+    });
+    const unread = { since: 0, readTurns: { [readIdentity(finished)]: "old-turn" } };
+    expect(projectNowBarRows([finished], [], connected, unread)[0]?.phase).toBe("error");
+    const other = { ...finished, environmentId: EnvironmentId.make("other") };
+    expect(
+      projectNowBarRows([other], [], connected, {
+        since: 0,
+        readTurns: { [readIdentity(finished)]: finished.latestTurn!.turnId },
+      })[0]?.phase,
+    ).toBe("error");
+  });
   it("prioritizes attention and uses real plan progress", () => {
     const rows = projectNowBarRows(
       [

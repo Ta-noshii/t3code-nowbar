@@ -10,6 +10,8 @@ export interface NowBarPreferences {
 }
 
 interface NowBarNativeModule {
+  readState(): { since: number; readTurns: string };
+  markRead(identity: string, turn: string): void;
   addListener(event: "heartbeat", listener: () => void): { remove(): void };
   preferences(): NowBarPreferences;
   setPreferences(json: string): void;
