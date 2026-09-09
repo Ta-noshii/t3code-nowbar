@@ -53,7 +53,7 @@ class AgentNotificationsTest {
     AgentNotifications.receive(context, update("components", true) + ("nowbar_rows" to JSONArray().put(row).toString()))
     val card = manager.activeNotifications.single { it.id == NowBarService.LIVE_ID }.notification
     val views = card.extras.getParcelable<RemoteViews>("android.ongoingActivityNoti.chronometerRemoteView")!!
-    val layout = applyAtSize(views, 160f, 48f)
+    val layout = views.apply(context, FrameLayout(context))
     assertEquals("Component test", layout.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_task).text.toString())
     assertEquals("3/8", layout.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_metric).text.toString())
     assertEquals(View.VISIBLE, layout.findViewById<View>(expo.modules.t3nowbar.R.id.nowbar_segments).visibility)
@@ -90,7 +90,7 @@ class AgentNotificationsTest {
     NowBarDebug.show(context, JSONArray().put(row).toString(), true)
     val card = manager.activeNotifications.single { it.id == NowBarDebug.ID }.notification
     val views = card.extras.getParcelable<RemoteViews>("android.ongoingActivityNoti.chronometerRemoteView")!!
-    val layout = applyAtSize(views, 160f, 48f)
+    val layout = views.apply(context, FrameLayout(context))
     assertEquals("T3 · Private test", layout.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_task).text.toString())
     assertEquals("", layout.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_metric).text.toString())
     assertEquals(View.GONE, layout.findViewById<View>(expo.modules.t3nowbar.R.id.nowbar_segments).visibility)
@@ -355,7 +355,7 @@ class AgentNotificationsTest {
   @Test
   @Config(sdk = [33, 36], qualifiers = "mdpi")
   @GraphicsMode(GraphicsMode.Mode.NATIVE)
-  fun notificationFallbackFitsOneLineWhileLargerHostsKeepDetails() {
+  fun defaultRemoteViewRetainsCustomStatusCountsAndProgress() {
     for ((phase, count, total) in listOf(Triple("working", 11, 0), Triple("completed", 2, 0),
       Triple("working", 1, 8))) {
       val row = nowBarRow(phase).put("title", "Restore Super Shift Notifications")
@@ -367,12 +367,20 @@ class AgentNotificationsTest {
       fallback.measure(View.MeasureSpec.makeMeasureSpec(280, View.MeasureSpec.EXACTLY),
         View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
       fallback.layout(0, 0, fallback.measuredWidth, fallback.measuredHeight)
-      assertTrue("$phase fallback height ${fallback.measuredHeight} must fit the title slot", fallback.measuredHeight <= 24)
+      assertTrue("$phase compact height ${fallback.measuredHeight}", fallback.measuredHeight in 28..48)
       val title = fallback.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_task)
       assertEquals("TEST · Restore Super Shift Notifications", title.text.toString())
-      val bounds = android.graphics.Rect(0, 0, title.width, title.height)
-      (fallback as android.view.ViewGroup).offsetDescendantRectToMyCoords(title, bounds)
-      assertTrue("Title bounds $bounds must fit the slot", bounds.top >= 0 && bounds.bottom <= 24)
+      assertEquals(if (phase == "completed") "Finished · Unread" else "Working",
+        fallback.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_badge).text.toString())
+      assertEquals(if (total > 0) "3/8" else "$count agents",
+        fallback.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_metric).text.toString())
+      val progress = fallback.findViewById<View>(expo.modules.t3nowbar.R.id.nowbar_segments)
+      assertEquals(if (total > 0) View.VISIBLE else View.GONE, progress.visibility)
+      if (total > 0) {
+        val bounds = android.graphics.Rect(0, 0, progress.width, progress.height)
+        (fallback as android.view.ViewGroup).offsetDescendantRectToMyCoords(progress, bounds)
+        assertTrue("Progress must fit the default view: $bounds", bounds.height() > 0 && bounds.bottom <= fallback.height)
+      }
       val compact = applyAtSize(views, 160f, 48f)
       assertEquals(if (total > 0) "3/8" else "$count agents",
         compact.findViewById<TextView>(expo.modules.t3nowbar.R.id.nowbar_metric).text.toString())

@@ -1,8 +1,8 @@
 An unofficial T3 Code Android fork with Samsung Now Bar and Android Live Updates.
 
-This update fixes clipped status/count fragments in Samsung’s notification cards. The custom title slot now defaults to a single line with the model/provider logo and task title. Hosts that supply more space can still select the existing compact layout or expanded layout with details and model name. Samsung’s normal status and action rows remain available below the title.
+This update restores the full custom Now Bar layout from .11. The .12 single-line fallback caused Samsung to omit custom status, counts and progress in views that had previously worked. The full compact layout is the default again, with the expanded layout, provider logos and progress preserved.
 
-The user confirmed the other states and views look good in .11. Native regression tests check the new single-line fallback and selection of the larger layouts; this notification-card fix still needs confirmation on the S26 Ultra.
+This is a regression recovery. The original clipping in one Samsung lock-screen notification view remains unresolved; this release does not claim to fix it. Native tests now require the default view itself to retain custom status, counts and progress.
 
 Approval requests, questions and proposed plans can now nudge once when attention is needed. Finished, failed and stopped work can nudge once and stays in Now Bar until opened or dismissed. Local monitoring and host push share alert history, so switching delivery paths does not repeat an alert. Old cached completions appear silently. **Attention nudges** and **Completion notifications** control alerts separately; Android channel settings and Do Not Disturb still apply.
 

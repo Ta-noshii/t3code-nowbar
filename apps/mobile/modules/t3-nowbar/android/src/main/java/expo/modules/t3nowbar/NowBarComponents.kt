@@ -50,22 +50,15 @@ object NowBarComponents {
     color: Int, completed: Int, total: Int, count: Int, enabled: Boolean,
     provider: String = "", model: String = "", detail: String = "", expandedPreview: Boolean = false) {
     if (!enabled) return
-    // Notification title slots may call apply() without supplying available bounds.
-    // Their default must be one line; larger hosts can select the richer layouts.
-    val header = RemoteViews(context.packageName, R.layout.nowbar_header).apply {
-      setImageViewBitmap(R.id.nowbar_emblem, NowBarBrand.bitmap(context, provider, model))
-      setTextViewText(R.id.nowbar_task, title)
-    }
     val compact = views(context, title, phase, color, completed, total, count, provider, model, detail, false)
     val expanded = views(context, title, phase, color, completed, total, count, provider, model, detail, true)
     val views = if (expandedPreview) expanded else if (Build.VERSION.SDK_INT >= 31)
-      RemoteViews(mapOf(SizeF(160f, 24f) to header, SizeF(160f, 48f) to compact,
-        SizeF(280f, 110f) to expanded)) else header
+      RemoteViews(mapOf(SizeF(160f, 48f) to compact, SizeF(280f, 110f) to expanded)) else compact
     builder.addExtras(Bundle().apply {
       val prefix = "android.ongoingActivityNoti."
       putInt(prefix + "style", 1)
       putParcelable(prefix + "chronometerRemoteView", views)
-      putCharSequence(prefix + "chronometerRemoteViewTag", "t3_nowbar_components_v3")
+      putCharSequence(prefix + "chronometerRemoteViewTag", "t3_nowbar_components_v4")
       putInt(prefix + "chronometerRemoteViewPosition", 1)
       putInt(prefix + "nowbarChronometerPosition", 1)
       putInt(prefix + "actionType", 1)
