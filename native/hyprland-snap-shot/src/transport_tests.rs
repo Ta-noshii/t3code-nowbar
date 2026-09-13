@@ -100,6 +100,7 @@ struct Server {
     thread: Option<thread::JoinHandle<()>>,
 }
 impl Server {
+    /// Insert one client into `display` and dispatch it on a background thread.
     fn start<S: Send + 'static>(
         mut display: Display<S>,
         mut state: S,
@@ -468,6 +469,7 @@ struct Screen {
     presenting: Vec<WpPresentationFeedback>,
 }
 impl Screen {
+    /// Serve the compositor globals and return a handle that reads the shared request log.
     fn start() -> (Server, wayland_client::Connection, Self) {
         let display = Display::<Screen>::new().unwrap();
         let handle = display.handle();
@@ -507,6 +509,7 @@ impl Screen {
             .map(|(_, name)| *name)
             .collect()
     }
+    /// Record a request on `surface` under a short name the test can count.
     fn log(&self, surface: &WlSurface, name: &'static str) {
         self.log
             .lock()

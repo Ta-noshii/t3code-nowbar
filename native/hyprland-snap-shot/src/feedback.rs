@@ -453,6 +453,8 @@ impl Feedback {
         self.destination = Some(destination);
         self.draw(qh)
     }
+    /// Paint one frame: the flash or capture at its current flight position on every
+    /// overlay it touches, plus the frame and presentation requests that drive the next one.
     pub(crate) fn draw(&mut self, qh: &QueueHandle<Self>) -> Result<()> {
         let progress = self
             .flight
