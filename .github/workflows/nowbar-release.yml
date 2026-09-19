@@ -82,7 +82,7 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk /opt/ghc
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         if: steps.source.outputs.build == 'true'
         with:
           distribution: temurin
@@ -100,15 +100,15 @@ jobs:
               - --filter=@t3tools/mobile...
               - --frozen-lockfile
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
         if: steps.source.outputs.build == 'true'
 
       - name: Test notification behavior and mobile types
         if: steps.source.outputs.build == 'true'
         run: |
           node --test apps/mobile/plugins/withNowBarFork.test.cjs
-          vp test run apps/mobile/src/features/nowbar/model.test.ts apps/mobile/src/features/nowbar/update-manifest.test.ts apps/mobile/src/features/nowbar/debug.test.ts
-          vp run --filter @t3tools/mobile typecheck
+          vp test run apps/mobile/src/features/nowbar/model.test.ts apps/mobile/src/features/nowbar/update-manifest.test.ts apps/mobile/src/features/nowbar/debug.test.ts apps/mobile/src/lib/appLinking.test.ts
+          (cd apps/mobile && node_modules/.bin/tsc --noEmit)
 
       - name: Configure Firebase for this fork
         if: steps.source.outputs.build == 'true'

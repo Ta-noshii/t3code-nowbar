@@ -24,7 +24,7 @@ if [[ ! -x node_modules/.bin/vp || ! -d apps/mobile/node_modules/expo ]]; then
   pnpm install --filter @t3tools/mobile... --frozen-lockfile
 fi
 node --test apps/mobile/plugins/withNowBarFork.test.cjs
-node_modules/.bin/vp test run apps/mobile/src/features/nowbar/model.test.ts apps/mobile/src/features/nowbar/update-manifest.test.ts apps/mobile/src/features/nowbar/debug.test.ts
+node_modules/.bin/vp test run apps/mobile/src/features/nowbar/model.test.ts apps/mobile/src/features/nowbar/update-manifest.test.ts apps/mobile/src/features/nowbar/debug.test.ts apps/mobile/src/lib/appLinking.test.ts
 (cd apps/mobile && node_modules/.bin/tsc --noEmit)
 
 # Regenerate only when native configuration changes; Kotlin/resources are linked directly.

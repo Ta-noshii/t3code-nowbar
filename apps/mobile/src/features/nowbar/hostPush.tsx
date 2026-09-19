@@ -110,7 +110,7 @@ export function HostPushSettings({ userId }: { readonly userId: string | null })
         onValueChange={(pushLive) => saveNowBarPreferences({ pushLive })}
       />
       <SettingsRow
-        icon="square.and.arrow.up"
+        icon="arrow.up"
         label="Share push setup with misc"
         disabled={busy || !userId}
         onPress={() => {

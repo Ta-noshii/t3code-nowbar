@@ -1,8 +1,12 @@
 An unofficial T3 Code Android fork with Samsung Now Bar and Android Live Updates.
 
-Enable **Settings → Samsung Now Bar → Samsung custom components**, then turn on **Expanded layout** to show the larger layout on live and host-push cards. Turn it off to return to automatic compact/expanded selection. Now Bar Lab's Expanded control still previews test cards independently.
+This release restores upstream syncing after the failed September 10–19 runs and updates the Android app to the upstream 1.2.1 base. It preserves Samsung custom layouts, expanded cards, agent-written status updates, model/provider logos, unread results and supported notification nudges.
 
-The expanded status line shows the latest completed agent-written update from the current turn. It falls back to the current plan step or general state until an update is available. Approval requests, questions, connection loss and terminal states take precedence. Updates are limited to the three visible working cards and do not publish for every streamed token. Hide task details still conceals status and model names.
+Now Bar controls remain under **Settings → Samsung Now Bar**. Private host push setup is under **Settings → Notifications**, alongside upstream's reorganized notification settings. Enable **Samsung custom components** and **Expanded layout** to show the larger live card. Turning Expanded layout off returns to automatic layout selection.
+
+The original cutoff in one Samsung lock-screen notification view remains unresolved; this release repairs sync/build failures and does not claim to fix that separate layout issue.
+
+Approval requests, questions, connection loss and terminal states take precedence. Updates are limited to the three visible working cards and do not publish for every streamed token. Hide task details still conceals status and model names.
 
 The original cutoff in one Samsung lock-screen notification view remains unresolved. The expanded layout can be selected explicitly; it does not force Samsung to resize its container. Native tests verify layout switching and status text, while actual Samsung rendering needs phone confirmation.
 

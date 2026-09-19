@@ -24,6 +24,7 @@ function thread(patch: Partial<EnvironmentThreadShell> = {}): EnvironmentThreadS
     interactionMode: "default",
     branch: null,
     worktreePath: null,
+    pullRequests: [],
     latestTurn: {
       turnId: TurnId.make("turn"),
       state: "running",

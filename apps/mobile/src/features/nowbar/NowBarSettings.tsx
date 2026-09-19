@@ -99,7 +99,7 @@ export function NowBarSettings() {
           onValueChange={(results) => saveNowBarPreferences({ results })}
         />
         <SettingsSwitchRow
-          icon="lock"
+          icon={{ ios: "lock", android: "lock" }}
           label="Hide task details"
           subtitle="Keep names and plan steps off all notification surfaces"
           value={preferences.private}
