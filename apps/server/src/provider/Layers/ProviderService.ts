@@ -2270,6 +2270,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         resumeCursor: binding.resumeCursor,
         cwd,
         numTurns: input.numTurns,
+        firstDroppedPrompt: input.firstDroppedPrompt,
       });
       if (resumeCursor === undefined) return false;
       const modelSelection = readPersistedModelSelection(binding.runtimePayload);
