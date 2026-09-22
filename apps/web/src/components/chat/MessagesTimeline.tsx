@@ -117,6 +117,7 @@ import {
   CircleAlertIcon,
   DownloadIcon,
   EyeIcon,
+  GitForkIcon,
   GlobeIcon,
   HammerIcon,
   MessageCircleIcon,
@@ -276,6 +277,7 @@ interface TimelineRowSharedState {
   skills: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   activeThreadEnvironmentId: EnvironmentId;
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
+  onForkFromMessage: ((messageId: MessageId) => void) | null;
   onUseArtifactTemplate: (template: CodexArtifactTemplate) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onFileOpen: (attachment: ChatFileAttachment) => void;
@@ -424,6 +426,8 @@ interface MessagesTimelineProps {
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   supportsConversationRollback: boolean;
   onRevertToTurnCount: (targetTurnCount: number, messageId: MessageId) => void;
+  /** Starts a new thread from a message: before it for user messages, after it for replies. */
+  onForkFromMessage?: ((messageId: MessageId) => void) | undefined;
   onUseArtifactTemplate?: (template: CodexArtifactTemplate) => void;
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
@@ -493,6 +497,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onOpenTurnDiff,
   supportsConversationRollback,
   onRevertToTurnCount,
+  onForkFromMessage,
   onUseArtifactTemplate = NOOP_USE_ARTIFACT_TEMPLATE,
   isRevertingCheckpoint,
   onImageExpand,
@@ -1137,6 +1142,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       skills,
       activeThreadEnvironmentId,
       onRevertToTurnCount,
+      onForkFromMessage: onForkFromMessage ?? null,
       onUseArtifactTemplate,
       onImageExpand,
       onFileOpen,
@@ -1172,6 +1178,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       skills,
       activeThreadEnvironmentId,
       onRevertToTurnCount,
+      onForkFromMessage,
       onUseArtifactTemplate,
       onImageExpand,
       onFileOpen,
@@ -2207,6 +2214,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             {typeof revertTurnCount === "number" && (
               <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
             )}
+            <ForkFromMessageButton messageId={row.message.id} label="Edit in new thread" edit />
             {resolvedContext.text && (
               <MessageCopyButton
                 // Structured paste needs the canonical links to retain their positions.
@@ -2282,6 +2290,42 @@ function RevertUserMessageButton({
         <Undo2Icon className="size-3" />
       </TooltipTrigger>
       <TooltipPopup side="top">Edit from here</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+function ForkFromMessageButton({
+  messageId,
+  label,
+  edit = false,
+}: {
+  messageId: MessageId;
+  label: string;
+  /** Editing a prompt in a new thread, rather than continuing after a reply. */
+  edit?: boolean;
+}) {
+  const ctx = use(TimelineRowCtx);
+  const activity = use(TimelineRowActivityCtx);
+  const onForkFromMessage = ctx.onForkFromMessage;
+  if (!onForkFromMessage) return null;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            disabled={activity.isRevertingCheckpoint || activity.isWorking}
+            onClick={() => onForkFromMessage(messageId)}
+            aria-label={label}
+          />
+        }
+      >
+        {edit ? <SquarePenIcon className="size-3" /> : <GitForkIcon className="size-3" />}
+      </TooltipTrigger>
+      <TooltipPopup side="top">{label}</TooltipPopup>
     </Tooltip>
   );
 }
@@ -2442,6 +2486,9 @@ function AssistantMessageMeta({
         showCopyButton={showCopyButton}
         streaming={copyStreaming}
       />
+      {showCopyButton && !copyStreaming && !message.streaming && (
+        <ForkFromMessageButton messageId={message.id} label="Fork from here" />
+      )}
       {!message.streaming && (
         <Tooltip>
           <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
