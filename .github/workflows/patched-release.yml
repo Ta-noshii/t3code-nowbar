@@ -1,0 +1,194 @@
+name: Patched desktop and server release
+
+# Rebuilds each upstream T3 Code release with the fork's patch branch applied and
+# publishes it here under the same version, so:
+#   - the desktop app (built with this repository as its update feed) updates
+#     itself onto patched builds, and
+#   - servers whose service sets T3CODE_RELEASE_BASE_URL to this repository's
+#     release downloads install the patched runtime from the normal "Update".
+# A patch that no longer applies fails the run and leaves earlier releases alone.
+
+on:
+  schedule:
+    - cron: "41 */4 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Upstream version to patch, e.g. 0.0.43-nightly.20260922.2110 or 0.0.43. Empty builds the newest nightly.
+        type: string
+        default: ""
+      rebuild:
+        description: Replace an existing patched release of that version
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: patched-release
+  cancel-in-progress: false
+
+env:
+  UPSTREAM: pingdotgg/t3code
+  PATCH_BRANCH: patch/edit-fork
+
+jobs:
+  plan:
+    if: github.repository == 'Ta-noshii/t3code-nowbar'
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.plan.outputs.versions }}
+    steps:
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          REBUILD: ${{ inputs.rebuild }}
+        run: |
+          set -euo pipefail
+          if [ -n "$VERSION" ]; then
+            candidates=("${VERSION#v}")
+          else
+            releases=$(gh release list -R "$UPSTREAM" --limit 40 --json tagName --jq '.[].tagName')
+            # Stable releases trail main and may need a rebased patch, so they are
+            # built on request only.
+            nightly=$(grep -m1 -E '^v[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+$' <<<"$releases" || true)
+            candidates=()
+            for tag in $nightly; do candidates+=("${tag#v}"); done
+          fi
+          versions=()
+          for version in "${candidates[@]}"; do
+            if [ "$REBUILD" != true ] && gh release view "v$version" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "v$version is already patched." >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            versions+=("$version")
+          done
+          json=$(printf '%s\n' "${versions[@]}" | jq -R . | jq -sc 'map(select(length > 0))')
+          echo "versions=$json" >> "$GITHUB_OUTPUT"
+          echo "To build: $json" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.versions != '[]'
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        version: ${{ fromJson(needs.plan.outputs.versions) }}
+    name: Patch ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      VERSION: ${{ matrix.version }}
+      # Public production client settings, the same values upstream builds embed.
+      # Without them the app cannot sign in to T3 Connect.
+      T3CODE_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsudDMuY29kZXMk
+      T3CODE_CLERK_JWT_TEMPLATE: t3-relay
+      T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: hzxSgY2cH10sDU2r
+      T3CODE_RELAY_URL: https://relay.t3.codes
+    steps:
+      - name: Check out the upstream release with the patch applied
+        env:
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          git init -q .
+          git config user.name 'T3 patched release'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add upstream "https://github.com/$UPSTREAM.git"
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git fetch -q --filter=blob:none upstream "refs/tags/v$VERSION:refs/tags/upstream-v$VERSION"
+          git fetch -q --filter=blob:none origin "$PATCH_BRANCH"
+          git sparse-checkout set --no-cone '/*' '!/.repos/'
+          git checkout -q --detach "upstream-v$VERSION"
+          base=$(git merge-base FETCH_HEAD HEAD)
+          if ! git cherry-pick "$base..FETCH_HEAD"; then
+            git status --short | grep -E '^(UU|AA|DU|UD) ' >> "$GITHUB_STEP_SUMMARY" || true
+            git cherry-pick --abort
+            echo "The $PATCH_BRANCH patch conflicts with upstream v$VERSION. Rebase it, then rerun." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          git log --oneline -n "$(git rev-list --count "$base..FETCH_HEAD")" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+
+      - name: Install Linux desktop build libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsecret-1-dev pkg-config imagemagick
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Install dependencies
+        run: vp install --filter=@t3tools/desktop... --filter=t3... --filter=@t3tools/scripts... --filter=@t3tools/web...
+
+      - name: Test the patch against this release
+        run: |
+          (cd apps/server && vp test run src/orchestration/forkThread.test.ts src/provider/Layers/ClaudeAdapter.test.ts)
+          (cd apps/web && vp test run src/components/ChatView.logic.test.ts)
+
+      - name: Align package versions to the upstream release
+        run: node scripts/update-release-package-versions.ts "$VERSION"
+
+      - name: Build desktop AppImage
+        env:
+          # Makes the app's updater read this repository's releases.
+          T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
+        run: vp run dist:desktop:artifact --platform linux --target AppImage --arch x64 --build-version "$VERSION" --verbose
+
+      - name: Build server single-executable
+        env:
+          # Keep in step with SEA_NODE_VERSION in apps/server/vite.config.ts.
+          VP_NODE_VERSION: "26.8.2"
+        run: node apps/server/scripts/cli.ts build-exe --verbose
+
+      - name: Build and smoke-test server archive
+        run: |
+          set -euo pipefail
+          monitor="$RUNNER_TEMP/cli-resource-monitor/linux-x64"
+          mkdir -p "$monitor"
+          cp native/resource-monitor/target/x86_64-unknown-linux-gnu/release/t3-resource-monitor "$monitor/"
+          node scripts/build-cli-archive.ts --platform linux --arch x64 --version "$VERSION" \
+            --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" --output-dir release-cli
+          node scripts/smoke-cli-archive.ts --archive release-cli/* --expect-version "$VERSION"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REBUILD: ${{ inputs.rebuild }}
+        run: |
+          set -euo pipefail
+          mkdir assets
+          cp release/*.AppImage release-cli/*.tar.gz assets/
+          cp release/*.yml assets/ 2>/dev/null || true
+          rm -f assets/builder-debug.yml
+          # Servers verify their archive against SHA256SUMS before installing it.
+          (cd assets && sha256sum *.tar.gz > SHA256SUMS)
+          tag="v$VERSION"
+          if [ "$REBUILD" = true ]; then gh release delete "$tag" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag || true; fi
+          git tag -f "$tag" HEAD
+          git push -f "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" "refs/tags/$tag"
+          flags=(--latest=false)
+          if [[ "$VERSION" == *-* ]]; then flags+=(--prerelease); fi
+          {
+            echo "Upstream [v$VERSION](https://github.com/$UPSTREAM/releases/tag/v$VERSION) with \`$PATCH_BRANCH\` applied."
+            echo
+            echo 'Servers: set `T3CODE_RELEASE_BASE_URL=https://github.com/'"$GITHUB_REPOSITORY"'/releases/download` on the T3 Code service.'
+          } > notes.md
+          gh release create "$tag" assets/* -R "$GITHUB_REPOSITORY" --title "T3 Code $VERSION (patched)" --notes-file notes.md "${flags[@]}"
+
+      - name: Prune older patched nightlies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list -R "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[].tagName' \
+            | grep -E '^v[0-9.]+-nightly\.' | sort -V -r | tail -n +6 \
+            | xargs -r -I{} gh release delete {} -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
