@@ -166,12 +166,13 @@ jobs:
           REBUILD: ${{ inputs.rebuild }}
         run: |
           set -euo pipefail
-          mkdir assets
-          cp release/*.AppImage release-cli/*.tar.gz assets/
-          cp release/*.yml assets/ 2>/dev/null || true
-          rm -f assets/builder-debug.yml
+          out="$RUNNER_TEMP/release-assets"
+          mkdir -p "$out"
+          cp release/*.AppImage release-cli/*.tar.gz "$out/"
+          cp release/*.yml "$out/" 2>/dev/null || true
+          rm -f "$out/builder-debug.yml"
           # Servers verify their archive against SHA256SUMS before installing it.
-          (cd assets && sha256sum *.tar.gz > SHA256SUMS)
+          (cd "$out" && sha256sum *.tar.gz > SHA256SUMS)
           tag="v$VERSION"
           if [ "$REBUILD" = true ]; then gh release delete "$tag" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag || true; fi
           git tag -f "$tag" HEAD
@@ -183,7 +184,7 @@ jobs:
             echo
             echo 'Servers: set `T3CODE_RELEASE_BASE_URL=https://github.com/'"$GITHUB_REPOSITORY"'/releases/download` on the T3 Code service.'
           } > notes.md
-          gh release create "$tag" assets/* -R "$GITHUB_REPOSITORY" --title "T3 Code $VERSION (patched)" --notes-file notes.md "${flags[@]}"
+          gh release create "$tag" "$out"/* -R "$GITHUB_REPOSITORY" --title "T3 Code $VERSION (patched)" --notes-file notes.md "${flags[@]}"
 
       - name: Prune older patched nightlies
         env:
