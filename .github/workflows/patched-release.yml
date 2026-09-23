@@ -132,8 +132,8 @@ jobs:
 
       - name: Test the patch against this release
         run: |
-          (cd apps/server && vp test run src/orchestration/forkThread.test.ts src/provider/Layers/ClaudeAdapter.test.ts)
-          (cd apps/web && vp test run src/components/ChatView.logic.test.ts)
+          (cd apps/server && vp test run src/orchestration/forkThread.test.ts src/orchestration/transferThread.test.ts src/claudeHistoryWorker.test.ts src/provider/Layers/ClaudeAdapter.test.ts)
+          (cd apps/web && vp test run src/components/ChatView.logic.test.ts src/components/BranchToolbar.logic.test.ts)
 
       - name: Align package versions to the upstream release
         run: node scripts/update-release-package-versions.ts "$VERSION"
