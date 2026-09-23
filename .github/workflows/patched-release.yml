@@ -139,6 +139,12 @@ jobs:
       - name: Install dependencies
         run: vp install --filter=@t3tools/desktop... --filter=t3... --filter=@t3tools/scripts... --filter=@t3tools/web...
 
+      # A patch can apply cleanly yet reference code upstream renamed or removed.
+      - name: Typecheck the patched apps
+        run: |
+          (cd apps/server && vp run typecheck)
+          (cd apps/web && vp run typecheck)
+
       - name: Test the patch against this release
         run: |
           (cd apps/server && vp test run src/orchestration/forkThread.test.ts src/orchestration/transferThread.test.ts src/claudeHistoryWorker.test.ts src/provider/Layers/ClaudeAdapter.test.ts)
