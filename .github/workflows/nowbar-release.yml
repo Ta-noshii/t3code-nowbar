@@ -70,7 +70,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          latest=$(gh release view --json tagName --jq .tagName)
+          latest=$(gh release view -R "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
           previous=${latest##*.}
           [[ "$previous" =~ ^[0-9]+$ ]]
           next=$((previous + 1))
@@ -186,5 +186,5 @@ jobs:
           # build cannot become the release for a newer branch.
           git push origin HEAD:nowbar
           tag="nowbar-$NOWBAR_VERSION"
-          gh release create "$tag" release/t3code-nowbar.apk release/update.json release/SHA256SUMS --target "${{ steps.source.outputs.sha }}" --title "T3 Code Now Bar $NOWBAR_VERSION" --notes-file docs/operations/nowbar-release-notes.md --latest
+          gh release create "$tag" -R "$GITHUB_REPOSITORY" release/t3code-nowbar.apk release/update.json release/SHA256SUMS --target "${{ steps.source.outputs.sha }}" --title "T3 Code Now Bar $NOWBAR_VERSION" --notes-file docs/operations/nowbar-release-notes.md --latest
           echo "Signed APK: https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag" >> "$GITHUB_STEP_SUMMARY"
