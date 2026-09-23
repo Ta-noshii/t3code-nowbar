@@ -31,7 +31,11 @@ concurrency:
 
 env:
   UPSTREAM: pingdotgg/t3code
-  PATCH_BRANCH: patch/edit-fork
+  # Applied in order. A branch that is gone (merged and deleted) is skipped, and commits
+  # upstream already contains drop out as empty cherry-picks.
+  PATCH_BRANCHES: >-
+    patch/edit-fork
+    fix/hyprland-snapshot-flight-sizing
 
 jobs:
   plan:
@@ -100,17 +104,22 @@ jobs:
           git remote add upstream "https://github.com/$UPSTREAM.git"
           git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
           git fetch -q --filter=blob:none upstream "refs/tags/v$VERSION:refs/tags/upstream-v$VERSION"
-          git fetch -q --filter=blob:none origin "$PATCH_BRANCH"
           git sparse-checkout set --no-cone '/*' '!/.repos/'
           git checkout -q --detach "upstream-v$VERSION"
-          base=$(git merge-base FETCH_HEAD HEAD)
-          if ! git cherry-pick "$base..FETCH_HEAD"; then
-            git status --short | grep -E '^(UU|AA|DU|UD) ' >> "$GITHUB_STEP_SUMMARY" || true
-            git cherry-pick --abort
-            echo "The $PATCH_BRANCH patch conflicts with upstream v$VERSION. Rebase it, then rerun." >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          git log --oneline -n "$(git rev-list --count "$base..FETCH_HEAD")" >> "$GITHUB_STEP_SUMMARY"
+          for branch in $PATCH_BRANCHES; do
+            if ! git fetch -q --filter=blob:none origin "refs/heads/$branch:refs/remotes/origin/$branch"; then
+              echo "Skipped \`$branch\`: not on the fork." >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            base=$(git merge-base "origin/$branch" HEAD)
+            if ! git cherry-pick --empty=drop "$base..origin/$branch"; then
+              git status --short | grep -E '^(UU|AA|DU|UD) ' >> "$GITHUB_STEP_SUMMARY" || true
+              git cherry-pick --abort
+              echo "The \`$branch\` patch conflicts with upstream v$VERSION. Rebase it, then rerun." >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          done
+          git log --oneline "upstream-v$VERSION..HEAD" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: voidzero-dev/setup-vp@v1
         with:
@@ -134,6 +143,7 @@ jobs:
         run: |
           (cd apps/server && vp test run src/orchestration/forkThread.test.ts src/orchestration/transferThread.test.ts src/claudeHistoryWorker.test.ts src/provider/Layers/ClaudeAdapter.test.ts)
           (cd apps/web && vp test run src/components/ChatView.logic.test.ts src/components/BranchToolbar.logic.test.ts)
+          (cd native/hyprland-snap-shot && cargo test --quiet)
 
       - name: Align package versions to the upstream release
         run: node scripts/update-release-package-versions.ts "$VERSION"
@@ -180,7 +190,7 @@ jobs:
           flags=(--latest=false)
           if [[ "$VERSION" == *-* ]]; then flags+=(--prerelease); fi
           {
-            echo "Upstream [v$VERSION](https://github.com/$UPSTREAM/releases/tag/v$VERSION) with \`$PATCH_BRANCH\` applied."
+            echo "Upstream [v$VERSION](https://github.com/$UPSTREAM/releases/tag/v$VERSION) with these fork branches applied: $(printf '\`%s\` ' $PATCH_BRANCHES)"
             echo
             echo 'Servers: set `T3CODE_RELEASE_BASE_URL=https://github.com/'"$GITHUB_REPOSITORY"'/releases/download` on the T3 Code service.'
           } > notes.md
