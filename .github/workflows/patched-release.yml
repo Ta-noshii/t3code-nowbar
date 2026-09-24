@@ -191,8 +191,9 @@ jobs:
           (cd "$out" && sha256sum *.tar.gz > SHA256SUMS)
           tag="v$VERSION"
           if [ "$REBUILD" = true ]; then gh release delete "$tag" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag || true; fi
-          git tag -f "$tag" HEAD
-          git push -f "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" "refs/tags/$tag"
+          # The patched tree can't be pushed as a tag: once upstream edits its workflow files,
+          # the workflow token may not push a commit containing them. The release tags this
+          # branch instead, and the notes name the upstream version and branches it was built from.
           flags=(--latest=false)
           if [[ "$VERSION" == *-* ]]; then flags+=(--prerelease); fi
           {
@@ -200,7 +201,7 @@ jobs:
             echo
             echo 'Servers: set `T3CODE_RELEASE_BASE_URL=https://github.com/'"$GITHUB_REPOSITORY"'/releases/download` on the T3 Code service.'
           } > notes.md
-          gh release create "$tag" "$out"/* -R "$GITHUB_REPOSITORY" --title "T3 Code $VERSION (patched)" --notes-file notes.md "${flags[@]}"
+          gh release create "$tag" "$out"/* -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "T3 Code $VERSION (patched)" --notes-file notes.md "${flags[@]}"
 
       - name: Prune older patched nightlies
         env:
