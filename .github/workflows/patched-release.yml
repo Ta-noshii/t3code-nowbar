@@ -6,7 +6,9 @@ name: Patched desktop and server release
 #     itself onto patched builds, and
 #   - servers whose service sets T3CODE_RELEASE_BASE_URL to this repository's
 #     release downloads install the patched runtime from the normal "Update".
-# A patch that no longer applies fails the run and leaves earlier releases alone.
+# A patch that conflicts or breaks typecheck/tests goes to the Cursor agent to reconcile
+# (needs the CURSOR_API_KEY secret); if that fails too, the run fails and leaves earlier
+# releases alone. FORK_CHANGES.md lists what the patches do.
 
 on:
   schedule:
@@ -93,7 +95,7 @@ jobs:
       T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: hzxSgY2cH10sDU2r
       T3CODE_RELAY_URL: https://relay.t3.codes
     steps:
-      - name: Check out the upstream release with the patch applied
+      - name: Check out the upstream release
         env:
           GIT_TERMINAL_PROMPT: "0"
         run: |
@@ -106,20 +108,11 @@ jobs:
           git fetch -q --filter=blob:none upstream "refs/tags/v$VERSION:refs/tags/upstream-v$VERSION"
           git sparse-checkout set --no-cone '/*' '!/.repos/'
           git checkout -q --detach "upstream-v$VERSION"
-          for branch in $PATCH_BRANCHES; do
-            if ! git fetch -q --filter=blob:none origin "refs/heads/$branch:refs/remotes/origin/$branch"; then
-              echo "Skipped \`$branch\`: not on the fork." >> "$GITHUB_STEP_SUMMARY"
-              continue
-            fi
-            base=$(git merge-base "origin/$branch" HEAD)
-            if ! git cherry-pick --empty=drop "$base..origin/$branch"; then
-              git status --short | grep -E '^(UU|AA|DU|UD) ' >> "$GITHUB_STEP_SUMMARY" || true
-              git cherry-pick --abort
-              echo "The \`$branch\` patch conflicts with upstream v$VERSION. Rebase it, then rerun." >> "$GITHUB_STEP_SUMMARY"
-              exit 1
-            fi
-          done
-          git log --oneline "upstream-v$VERSION..HEAD" >> "$GITHUB_STEP_SUMMARY"
+          # The reconcile script and the change list live on this branch, not in the upstream tree.
+          git fetch -q --filter=blob:none origin "$GITHUB_REF"
+          git show "FETCH_HEAD:.github/scripts/patch-reconcile.sh" > "$RUNNER_TEMP/patch-reconcile.sh"
+          git show "FETCH_HEAD:FORK_CHANGES.md" > "$RUNNER_TEMP/FORK_CHANGES.md"
+          chmod +x "$RUNNER_TEMP/patch-reconcile.sh"
 
       - uses: voidzero-dev/setup-vp@v1
         with:
@@ -136,20 +129,24 @@ jobs:
         with:
           targets: x86_64-unknown-linux-gnu
 
+      # Installed before the patches too, so the agent can typecheck while it resolves them.
       - name: Install dependencies
         run: vp install --filter=@t3tools/desktop... --filter=t3... --filter=@t3tools/scripts... --filter=@t3tools/web...
 
-      # A patch can apply cleanly yet reference code upstream renamed or removed.
-      - name: Typecheck the patched apps
+      # Conflicts go to the Cursor agent when CURSOR_API_KEY is set.
+      - name: Apply the fork's patches
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
         run: |
-          (cd apps/server && vp run typecheck)
-          (cd apps/web && vp run typecheck)
+          "$RUNNER_TEMP/patch-reconcile.sh" apply
+          vp install --filter=@t3tools/desktop... --filter=t3... --filter=@t3tools/scripts... --filter=@t3tools/web...
 
-      - name: Test the patch against this release
-        run: |
-          (cd apps/server && vp test run src/orchestration/forkThread.test.ts src/orchestration/transferThread.test.ts src/claudeHistoryWorker.test.ts src/provider/Layers/ClaudeAdapter.test.ts)
-          (cd apps/web && vp test run src/components/ChatView.logic.test.ts src/components/BranchToolbar.logic.test.ts)
-          (cd native/hyprland-snap-shot && cargo test --quiet)
+      # A patch can apply cleanly yet reference code upstream renamed or removed. Failures
+      # go to the agent too, for up to two rounds of fixes.
+      - name: Typecheck and test the patched apps
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: '"$RUNNER_TEMP/patch-reconcile.sh" check'
 
       - name: Align package versions to the upstream release
         run: node scripts/update-release-package-versions.ts "$VERSION"
@@ -200,7 +197,17 @@ jobs:
             echo "Upstream [v$VERSION](https://github.com/$UPSTREAM/releases/tag/v$VERSION) with these fork branches applied: $(printf '\`%s\` ' $PATCH_BRANCHES)"
             echo
             echo 'Servers: set `T3CODE_RELEASE_BASE_URL=https://github.com/'"$GITHUB_REPOSITORY"'/releases/download` on the T3 Code service.'
+            if [ -s "$RUNNER_TEMP/ai-notes.md" ]; then
+              echo
+              echo '**The Cursor agent reconciled the patches with this upstream version.** Fold `ai-reconciliation.patch` into the patch branches so later builds apply cleanly.'
+              echo
+              cat "$RUNNER_TEMP/ai-notes.md"
+            fi
           } > notes.md
+          if [ -s "$RUNNER_TEMP/ai-notes.md" ]; then
+            git diff "upstream-v$VERSION" HEAD > "$out/ai-reconciliation.patch"
+            cat "$RUNNER_TEMP/ai-notes.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
           gh release create "$tag" "$out"/* -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "T3 Code $VERSION (patched)" --notes-file notes.md "${flags[@]}"
 
       - name: Prune older patched nightlies
